@@ -108,6 +108,11 @@ void SpuSetVoiceAttr(SpuVoiceAttr *arg)
 	PsyX_SPUAL_SetVoiceAttr(arg);
 }
 
+void SpuGetVoiceAttr(SpuVoiceAttr *arg)
+{
+	PsyX_SPUAL_GetVoiceAttr(arg);
+}
+
 void SpuSetKey(int on_off, unsigned int voice_bit)
 {
 	PsyX_SPUAL_SetKey(on_off, voice_bit);

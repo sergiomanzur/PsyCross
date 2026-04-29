@@ -596,6 +596,60 @@ void PsyX_SPUAL_GetVoicePitch(int vNum, u_short* pitch)
 	*pitch = g_SpuVoices[vNum].attr.pitch;
 }
 
+void PsyX_SPUAL_GetVoiceAttr(SpuVoiceAttr* psxAttrib)
+{
+	/* The game uses this to read back the current pitch (and other
+	 * attributes) for an already-keyed voice; libsd's
+	 * Sd_PlaySfx → Sd_SfxAttributesUpdate path stashes the result in
+	 * g_AudioPlayingPitchList[voiceIdx] and re-uses it on every per-frame
+	 * SfxAttributesUpdate. If we leave it as a no-op, the stashed pitch
+	 * is 0, so the per-frame SetVoiceAttr passes pitch=0 and our handler
+	 * pauses the OpenAL source — the voice plays for one frame and goes
+	 * silent (manifested as the radio static "playing for a second then
+	 * inaudible").
+	 *
+	 * .voice on input is a single-bit value (the bit corresponding to the
+	 * voice index). Find that bit, then copy the cached attr fields into
+	 * the caller's struct. */
+	if (!g_spuInit || !psxAttrib)
+		return;
+
+	SDL_LockMutex(g_SpuMutex);
+
+	for (int i = 0; i < s_spuVoiceCount; i++)
+	{
+		if ((psxAttrib->voice & SPU_VOICECH(i)) == 0)
+			continue;
+
+		SPUALVoice* voice = &g_SpuVoices[i];
+		/* Preserve caller's .voice and .mask (mask is invalid on Get,
+		 * but the call site may inspect or pass it on). Don't overwrite
+		 * those — only fill the read-out fields. */
+		psxAttrib->volume     = voice->attr.volume;
+		psxAttrib->volmode    = voice->attr.volmode;
+		psxAttrib->volumex    = voice->attr.volume;  /* current vol = set vol */
+		psxAttrib->pitch      = voice->attr.pitch;
+		psxAttrib->note       = voice->attr.note;
+		psxAttrib->sample_note = voice->attr.sample_note;
+		psxAttrib->envx       = 0; /* current envelope unused on PC */
+		psxAttrib->addr       = voice->attr.addr;
+		psxAttrib->loop_addr  = voice->attr.loop_addr;
+		psxAttrib->a_mode     = voice->attr.a_mode;
+		psxAttrib->s_mode     = voice->attr.s_mode;
+		psxAttrib->r_mode     = voice->attr.r_mode;
+		psxAttrib->ar         = voice->attr.ar;
+		psxAttrib->dr         = voice->attr.dr;
+		psxAttrib->sr         = voice->attr.sr;
+		psxAttrib->rr         = voice->attr.rr;
+		psxAttrib->sl         = voice->attr.sl;
+		psxAttrib->adsr1      = voice->attr.adsr1;
+		psxAttrib->adsr2      = voice->attr.adsr2;
+		break; /* only one voice per Get call */
+	}
+
+	SDL_UnlockMutex(g_SpuMutex);
+}
+
 void PsyX_SPUAL_SetVoiceAttr(SpuVoiceAttr* psxAttrib)
 {
 	if (!g_spuInit)

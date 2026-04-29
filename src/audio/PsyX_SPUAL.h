@@ -24,6 +24,7 @@ extern u_int PsyX_SPUAL_SetTransferStartAddr(u_int addr);
 extern void PsyX_SPUAL_GetVoiceVolume(int vNum, short* volL, short* volR);
 extern void PsyX_SPUAL_GetVoicePitch(int vNum, u_short* pitch);
 extern void PsyX_SPUAL_SetVoiceAttr(SpuVoiceAttr* psxAttrib);
+extern void PsyX_SPUAL_GetVoiceAttr(SpuVoiceAttr* psxAttrib);
 extern void PsyX_SPUAL_SetKey(int on_off, u_int voice_bit);
 
 extern int PsyX_SPUAL_GetKeyStatus(u_int voice_bit);
