@@ -766,6 +766,7 @@ const char* gte_shader_32_rgba =
 	"#else\n"
 	"	uniform sampler2D s_texture;\n"\
 	"	uniform int bilinearFilter;\n"\
+	"	uniform float u_ditherForce;\n"\
 	"	uniform vec2 texelSize;\n"\
 	"	void main() {\n"\
 	"		vec2 tc = v_texcoord.xy * texelSize + texelSize * 0.5;\n"\
