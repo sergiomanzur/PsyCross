@@ -86,6 +86,12 @@ int g_cfg_pgxpTextureCorrection = 1;
 int g_cfg_pgxpZBuffer = 1;
 int g_cfg_bilinearFiltering = 0;
 int g_cfg_affineTextures = 0;
+/* When non-zero, the GPU_DITHERING macro applies the 4x4 PSX-style ordered
+ * dither to every fragment regardless of the per-primitive `a_texcoord.w`
+ * dither flag. Lets the PC port mimic the PSX 5-bit framebuffer noise
+ * (which masks texture-page seams and gives the authentic look) on
+ * primitives that don't request dither at the prim-tag level. */
+int g_cfg_psxDither = 1;
 
 int vram_need_update = 1;
 int framebuffer_need_update = 0;
@@ -494,6 +500,7 @@ typedef struct
 	GLint projectionLoc;
 	GLint projection3DLoc;
 	GLint bilinearFilterLoc;
+	GLint ditherForceLoc;
 	GLint texelSizeLoc;
 	GLint fogColorLoc;
 #endif
@@ -509,6 +516,7 @@ GTEShader g_gte_shader_32_rgba;
 GLint u_projectionLoc;
 GLint u_projection3DLoc;
 GLint u_bilinearFilterLoc;
+GLint u_ditherForceLoc;
 GLint u_texelSizeLoc;
 GLint u_fogColorLoc;
 
@@ -536,6 +544,23 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 
 #if defined(RENDERER_OGL) || (OGLES_VERSION == 3)
 
+/* PSX 4x4 ordered dither.
+ *
+ * Native hardware applies a signed offset before quantizing to the 5-bit
+ * framebuffer. We match the matrix the original game's GPU uses (values
+ * in [-4..+3]) divided by 255 so it lands in 24-bit color space.
+ *
+ * `v_texcoord.w` carries the per-primitive dither flag from the prim's
+ * tpage. `u_ditherForce` is a global override the PC config exposes —
+ * when non-zero, dither is applied to every fragment regardless of the
+ * per-prim flag. We combine via max() so a prim that requests dither
+ * still gets it even when force is 0, and a prim that didn't request
+ * dither gets the global override when force is 1.
+ *
+ * After adding the dither offset we quantize to 5 bits per channel
+ * (PSX framebuffer depth) so the noise translates to actual color
+ * banding rather than staying as a smooth gradient — that's what
+ * produces the visible "film grain" look. */
 #	define GPU_DITHERING\
 		"		fragColor *= v_color;\n"\
 		"		mat4 dither = mat4(\n"\
@@ -544,7 +569,11 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 		"			-3.0,  +1.0,  -4.0,  +0.0,\n"\
 		"			+3.0,  -1.0,  +2.0,  -2.0) / 255.0;\n"\
 		"		ivec2 dc = ivec2(fract(gl_FragCoord.xy / 4.0) * 4.0);\n"\
-		"		fragColor.xyz += vec3(dither[dc.x][dc.y] * v_texcoord.w);\n"
+		"		float dStrength = max(v_texcoord.w, u_ditherForce);\n"\
+		"		fragColor.xyz += vec3(dither[dc.x][dc.y] * dStrength);\n"\
+		"		if (u_ditherForce > 0.5) {\n"\
+		"		    fragColor.xyz = floor(fragColor.xyz * 32.0 + 0.5) / 32.0;\n"\
+		"		}\n"
 
 #	define GPU_ARRAY_FUNC\
 		"	float _idx2(vec2 array, int idx) { return array[idx]; }"
@@ -678,6 +707,7 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 	GPU_BILINEAR_SAMPLE_FUNC\
 	GPU_NEAREST_SAMPLE_FUNC\
 	"	uniform int bilinearFilter;\n"\
+	"	uniform float u_ditherForce;\n"\
 	"	uniform vec3 u_fogColor;\n"\
 	"	void main() {\n"\
 	"		if(bilinearFilter > 0)\n"\
@@ -956,6 +986,7 @@ void GR_CompilePSXShader(GTEShader* sh, const char* source)
 #if USE_OPENGL
 	
 	sh->bilinearFilterLoc = glGetUniformLocation(sh->shader, "bilinearFilter");
+	sh->ditherForceLoc = glGetUniformLocation(sh->shader, "u_ditherForce");
 	sh->projectionLoc = glGetUniformLocation(sh->shader, "Projection");
 	sh->texelSizeLoc = glGetUniformLocation(sh->shader, "texelSize");
 	sh->fogColorLoc = glGetUniformLocation(sh->shader, "u_fogColor");
@@ -1256,6 +1287,7 @@ void GR_SetTexture(TextureID texture, TexFormat texFormat)
 	case TF_4_BIT:
 		GR_SetShader(g_gte_shader_4.shader);
 		u_bilinearFilterLoc = g_gte_shader_4.bilinearFilterLoc;
+		u_ditherForceLoc = g_gte_shader_4.ditherForceLoc;
 		u_projectionLoc = g_gte_shader_4.projectionLoc;
 		u_projection3DLoc = g_gte_shader_4.projection3DLoc;
 		u_texelSizeLoc = -1;
@@ -1264,6 +1296,7 @@ void GR_SetTexture(TextureID texture, TexFormat texFormat)
 	case TF_8_BIT:
 		GR_SetShader(g_gte_shader_8.shader);
 		u_bilinearFilterLoc = g_gte_shader_8.bilinearFilterLoc;
+		u_ditherForceLoc = g_gte_shader_8.ditherForceLoc;
 		u_projectionLoc = g_gte_shader_8.projectionLoc;
 		u_projection3DLoc = g_gte_shader_8.projection3DLoc;
 		u_texelSizeLoc = -1;
@@ -1272,6 +1305,7 @@ void GR_SetTexture(TextureID texture, TexFormat texFormat)
 	case TF_16_BIT:
 		GR_SetShader(g_gte_shader_16.shader);
 		u_bilinearFilterLoc = g_gte_shader_16.bilinearFilterLoc;
+		u_ditherForceLoc = g_gte_shader_16.ditherForceLoc;
 		u_projectionLoc = g_gte_shader_16.projectionLoc;
 		u_projection3DLoc = g_gte_shader_16.projection3DLoc;
 		u_texelSizeLoc = -1;
@@ -1280,6 +1314,7 @@ void GR_SetTexture(TextureID texture, TexFormat texFormat)
 	case TF_32_BIT_RGBA:
 		GR_SetShader(g_gte_shader_32_rgba.shader);
 		u_bilinearFilterLoc = -1;
+		u_ditherForceLoc = -1;
 		u_projectionLoc = g_gte_shader_32_rgba.projectionLoc;
 		u_projection3DLoc = g_gte_shader_32_rgba.projection3DLoc;
 		u_texelSizeLoc = g_gte_shader_32_rgba.texelSizeLoc;
@@ -1289,6 +1324,12 @@ void GR_SetTexture(TextureID texture, TexFormat texFormat)
 
 	if (u_fogColorLoc != -1)
 		glUniform3fv(u_fogColorLoc, 1, g_PsyX_FogColor);
+
+	/* Push the dither-force uniform every shader bind. Cheap (single
+	 * float upload) and ensures runtime config changes (if we add a
+	 * hotkey toggle later) take effect on the next primitive. */
+	if (u_ditherForceLoc != -1)
+		glUniform1f(u_ditherForceLoc, g_cfg_psxDither ? 1.0f : 0.0f);
 
 	if (g_dbg_texturelessMode) {
 		texture = g_whiteTexture;
