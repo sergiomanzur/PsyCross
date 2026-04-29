@@ -368,6 +368,27 @@ int CdControl(u_char com, u_char * param, u_char * result)
 		// owns its own channel filter, so the PSX-side filter is a no-op.
 		return 1;
 	}
+	case CdlSeekL:
+	case CdlSeekP:
+	{
+		// PSX moves the laser; on PC the file backing handles seek directly.
+		// xa_player.c does its own fseek; libsd's seek is informational only.
+		// Returning success lets Sd_XaPreLoadAudio / Sd_XaAudioPlay's state
+		// machines advance past the seek-wait state.
+		if (param) {
+			CdlLOC* cd = (CdlLOC*)param;
+			vfseek(&g_imageFile, CdPosToInt(cd) * g_cdSectorSize, SEEK_SET);
+			g_cdCurrentSector = CdPosToInt(cd);
+		}
+		return 1;
+	}
+	case CdlReadN:
+	{
+		// "Read with auto-pause" — PSX kicks off DMA streaming. On PC the
+		// XA player already streams from the file, so this is a no-op that
+		// just lets the PSX state machine advance to EnableAudio.
+		return 1;
+	}
 	default:
 		eprinterr("Unhandled command 0x%02X!\n", com);
 		break;
