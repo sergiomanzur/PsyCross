@@ -607,8 +607,15 @@ typedef struct {
 	unsigned int   attr;        /* state | block-count */
 	unsigned int   size;        /* bytes */
 	unsigned short unknown;
-	char           name[20];    /* null-terminated */
-	char           padding[98]; /* pad to 128 bytes */
+	char           name[21];    /* PSX memcard name field is 21 bytes
+	                             * (max 20 chars + null). The Silent
+	                             * Hill save filename "BASLUS-00707SILENT00"
+	                             * is exactly 20 chars long so the trailing
+	                             * null lives in the 21st byte. A 20-byte
+	                             * field truncates by one character which
+	                             * makes the subsequent open() fail to
+	                             * find the file. */
+	char           padding[97]; /* pad to 128 bytes (4+4+2+21+97) */
 } McDirEntry;
 #pragma pack(pop)
 
