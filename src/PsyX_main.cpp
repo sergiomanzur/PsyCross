@@ -875,6 +875,10 @@ void PsyX_EndScene()
 	GR_StoreFrameBuffer(activeDispEnv.disp.x, activeDispEnv.disp.y, activeDispEnv.disp.w, activeDispEnv.disp.h);
 #endif
 
+	/* PC port: g_PsxSkipFramebufferStore is a per-frame opt-out — the game must
+	 * re-set it each tick during a TIM-protect screen (e.g. paper-map pickup). */
+	g_PsxSkipFramebufferStore = 0;
+
 	GR_SwapWindow();
 }
 

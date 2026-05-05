@@ -114,6 +114,9 @@ int g_cfg_affineTextures = 0;
 int g_cfg_psxDither = 1;
 
 int vram_need_update = 1;
+
+/* PC port: runtime gate for framebuffer→VRAM feedback. See PsyX_render.h. */
+int g_PsxSkipFramebufferStore = 0;
 int framebuffer_need_update = 0;
 
 #if defined(__EMSCRIPTEN__) || defined(__RPI__) || defined(__ANDROID__)
@@ -1565,6 +1568,13 @@ void GR_ReadFramebufferDataToVRAM()
 
 	framebuffer_need_update = 0;
 
+	/* PC port: skip readback while a paper-map / TIM-protect screen is active.
+	 * The readback writes the framebuffer back into vram[] at (disp.x, disp.y)
+	 * which can clobber CLUT/texture rows that live inside the display rect
+	 * (paper-map CLUT lives at VRAM (224,15) — inside (0,0)-(320,240)). */
+	if (g_PsxSkipFramebufferStore)
+		return;
+
 	x = g_PreviousFramebuffer.x;
 	y = g_PreviousFramebuffer.y;
 	w = g_PreviousFramebuffer.w;
@@ -1683,6 +1693,22 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 	{
 		GR_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
 
+		/* PC port: skip the offscreen-RT → VRAM writeback when a TIM-protect
+		 * screen is active. This branch fires whenever a draw split has
+		 * dfe=0 (offscreen render target). Both the GL blit and the CPU
+		 * GR_CopyRGBAFramebufferToVRAM below write to VRAM at
+		 * (g_PreviousOffscreen.x, g_PreviousOffscreen.y, w, h) — for paper-map
+		 * pickup screens that rect overlaps the CLUT at (224,15) and texture
+		 * origin (320,16), tiling rendered framebuffer content over the
+		 * just-uploaded TIM. The viewport / state-tracking above must still
+		 * run so subsequent draws use the correct framebuffer binding;
+		 * only the writes are suppressed. */
+		if (g_PsxSkipFramebufferStore)
+		{
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		}
+		else
+		{
 #if USE_OFFSCREEN_BLIT
 		// before drawing set source and target
 		{
@@ -1695,7 +1721,7 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, g_glOffscreenFramebuffer);					// source is backbuffer
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_glVRAMFramebuffer);
 
-			glBlitFramebuffer(0, 0, g_PreviousOffscreen.w, g_PreviousOffscreen.h, 
+			glBlitFramebuffer(0, 0, g_PreviousOffscreen.w, g_PreviousOffscreen.h,
 								g_PreviousOffscreen.x, g_PreviousOffscreen.y + g_PreviousOffscreen.h, g_PreviousOffscreen.x + g_PreviousOffscreen.w, g_PreviousOffscreen.y,
 								GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
@@ -1704,7 +1730,7 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		}
 #endif
-		
+
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		// copy rendering results to VRAM texture
 		{
@@ -1715,9 +1741,10 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 			glBindTexture(GL_TEXTURE_2D, g_lastBoundTexture);
 
 			// Don't forcely update VRAM
-			GR_CopyRGBAFramebufferToVRAM((u_int*)g_glOffscreenPBO.pixels, 
-				g_PreviousOffscreen.x, g_PreviousOffscreen.y, g_PreviousOffscreen.w, g_PreviousOffscreen.h, 
+			GR_CopyRGBAFramebufferToVRAM((u_int*)g_glOffscreenPBO.pixels,
+				g_PreviousOffscreen.x, g_PreviousOffscreen.y, g_PreviousOffscreen.w, g_PreviousOffscreen.h,
 				USE_OFFSCREEN_BLIT == 0, 1);
+		}
 		}
 
 	}
@@ -1726,6 +1753,14 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 
 void GR_StoreFrameBuffer(int x, int y, int w, int h)
 {
+	/* PC port: skip the entire framebuffer→VRAM blit when a TIM-protect
+	 * screen is active. Without this, every PsyX_EndScene blits the rendered
+	 * frame onto g_vramTexture at (disp.x, disp.y, disp.w, disp.h), which
+	 * destroys CLUTs/textures that the game just LoadImage'd into that
+	 * region (paper-map CLUT at (224,15) is the canonical victim). */
+	if (g_PsxSkipFramebufferStore)
+		return;
+
 #if USE_OPENGL
 	// set storage size first
 	if (g_PreviousFramebuffer.w != w ||

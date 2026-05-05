@@ -185,6 +185,13 @@ extern void			GR_StoreFrameBuffer(int x, int y, int w, int h);
 extern void			GR_UpdateVRAM();
 extern void			GR_ReadFramebufferDataToVRAM();
 
+/* PC port: when non-zero, GR_StoreFrameBuffer and GR_ReadFramebufferDataToVRAM
+ * are skipped. Set this during 2D screens that re-LoadImage TIMs into VRAM
+ * regions that overlap the display rect (e.g. paper-map pickup CLUT at
+ * (224,15) sits inside the (0,0)-(320,240) display area, so the framebuffer
+ * blit blows away the freshly uploaded CLUT every frame). */
+extern int			g_PsxSkipFramebufferStore;
+
 extern TextureID	GR_CreateRGBATexture(int width, int height, u_char* data /*= nullptr*/);
 extern ShaderID		GR_Shader_Compile(const char* source);
 

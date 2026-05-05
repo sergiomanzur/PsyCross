@@ -1660,8 +1660,17 @@ static int ProcessDrawEnv(P_TAG* polyTag)
 			break;
 		}
 		case 0:
-			// proceed to next primitive tag
-			return processedLongs;
+			// proceed to next primitive tag — but consume the rest of the
+			// declared packet length so the caller's
+			//   currentPacket += (primLength + P_LEN) * 4
+			// advance lands at endPacket. Returning the partial count made
+			// currentPacket short of endPacket; the leftover bytes (zero
+			// padding) then got mis-parsed as a fresh prim with code=0x00 /
+			// primLength=3, which overshot endPacket by 16 bytes (exactly
+			// the diff=-16 in the OT-PRIM log) and started chasing wild
+			// next-pointers — repro: handgun fire, stack
+			// ParsePrimitivesLinkedList+0xae -> DrawOTag -> GsDrawOt.
+			return polyTag->len;
 		}
 		++processedLongs;
 	}
