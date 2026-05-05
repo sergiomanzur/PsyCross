@@ -1877,6 +1877,52 @@ void GR_UpdateVRAM()
 #endif
 }
 
+/* PC port: directly upload a sub-region of vram[] to BOTH double-buffered VRAM
+ * textures, bypassing the vram_need_update / texture-swap dance. Used by the
+ * paper-map TIM-protect helper to guarantee the paper-map data is present in
+ * whichever texture the renderer is about to sample, even if some unfound
+ * code path has stamped framebuffer pixels into the other texture.
+ *
+ * Why this exists: the gating in GR_StoreFrameBuffer / GR_ReadFramebufferDataToVRAM
+ * via g_PsxSkipFramebufferStore is necessary but apparently not sufficient —
+ * paper-map pickup screens still show tiled gameplay framebuffer content
+ * sampled from the (320, 16+) VRAM region even with all known framebuffer→VRAM
+ * paths gated. A direct upload is the nuclear-option fallback that defeats
+ * any unfound corruption path: whatever wrote framebuffer pixels into the
+ * GPU texture after the last GR_UpdateVRAM gets unconditionally overwritten. */
+void GR_DirectUploadVRAMRegion(int x, int y, int w, int h)
+{
+#if USE_OPENGL
+	if (x < 0 || y < 0 || w <= 0 || h <= 0)
+		return;
+	if (x + w > VRAM_WIDTH)  w = VRAM_WIDTH  - x;
+	if (y + h > VRAM_HEIGHT) h = VRAM_HEIGHT - y;
+	if (w <= 0 || h <= 0)
+		return;
+
+	/* Build a contiguous block from the vram[] sub-region (vram is 1024 stride). */
+	unsigned short* block = (unsigned short*)malloc((size_t)w * (size_t)h * sizeof(unsigned short));
+	if (!block)
+		return;
+
+	for (int row = 0; row < h; row++)
+	{
+		SDL_memcpy(block + (size_t)row * w,
+		           vram + (size_t)(y + row) * VRAM_WIDTH + x,
+		           (size_t)w * sizeof(unsigned short));
+	}
+
+	for (int i = 0; i < 2; i++)
+	{
+		glBindTexture(GL_TEXTURE_2D, g_vramTexturesDouble[i]);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, VRAM_FORMAT, GL_UNSIGNED_BYTE, block);
+	}
+	glBindTexture(GL_TEXTURE_2D, g_lastBoundTexture);
+
+	free(block);
+#endif
+}
+
 void GR_SwapWindow()
 {
 #if defined(RENDERER_OGL) || defined(RENDERER_OGLES)

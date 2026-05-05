@@ -185,6 +185,11 @@ extern void			GR_StoreFrameBuffer(int x, int y, int w, int h);
 extern void			GR_UpdateVRAM();
 extern void			GR_ReadFramebufferDataToVRAM();
 
+/* PC port: directly upload a vram[] sub-region to BOTH double-buffered VRAM
+ * textures, bypassing the swap-then-upload dance. Used by the paper-map
+ * TIM-protect helper to defeat any unfound framebuffer→GPU-texture path. */
+extern void			GR_DirectUploadVRAMRegion(int x, int y, int w, int h);
+
 /* PC port: when non-zero, GR_StoreFrameBuffer and GR_ReadFramebufferDataToVRAM
  * are skipped. Set this during 2D screens that re-LoadImage TIMs into VRAM
  * regions that overlap the display rect (e.g. paper-map pickup CLUT at
