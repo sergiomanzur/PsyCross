@@ -102,6 +102,81 @@ int g_dbg_texturelessMode = 0;
 // When 0, GR_SetOffscreenState uses 4:3 ortho so 2D UI screens don't show VRAM garbage.
 int g_PcHorPlusEnabled = 1;
 
+// When 1, GR_PaintPillarboxBars paints black bars on the side outside the
+// 4:3 inner area after the bg-color clear. Decoupled from g_PcHorPlusEnabled
+// because we want bars black regardless of whether 3D world fills 16:9 — at
+// 16:9 window with 4:3 ortho, 2D UI naturally lands in the inner 4:3 only,
+// and the bg-color clear (e.g. KCET's white) leaks into the side region.
+// Set from main_pc.c based on g_PcConfig.uiScaling.
+int g_PcUiPillarboxBars = 1;
+
+// Compute the 4:3 inset rect inside the window (for painting bars black).
+static void GR_ComputeBarRect(int* x, int* y, int* w, int* h)
+{
+	const float psxAspect = 4.0f / 3.0f;
+	const float winAspect = (g_windowHeight > 0)
+		? ((float)g_windowWidth / (float)g_windowHeight)
+		: psxAspect;
+	if (winAspect > psxAspect + 1e-3f)
+	{
+		*h = g_windowHeight;
+		*w = (int)((float)g_windowHeight * psxAspect + 0.5f);
+		*x = (g_windowWidth - *w) / 2;
+		*y = 0;
+	}
+	else if (winAspect < psxAspect - 1e-3f)
+	{
+		*w = g_windowWidth;
+		*h = (int)((float)g_windowWidth / psxAspect + 0.5f);
+		*x = 0;
+		*y = (g_windowHeight - *h) / 2;
+	}
+	else
+	{
+		*x = 0; *y = 0; *w = g_windowWidth; *h = g_windowHeight;
+	}
+}
+
+// Paint the pillarbox bar regions black using glClear + scoped scissor.
+// Called from PsyX_BeginScene right after the bg-color clear so the bars
+// stay black even when bg color is non-black (e.g. KCET screen's white).
+// Does NOT change the viewport — 3D content still fills the full window.
+// The 2D ortho already pillarboxes UI to the 4:3 inner area; this paint
+// just makes the unfilled sides black instead of bg-colored.
+void GR_PaintPillarboxBars(void)
+{
+	if (!g_PcUiPillarboxBars) return;
+#if USE_OPENGL
+	int pbX, pbY, pbW, pbH;
+	GR_ComputeBarRect(&pbX, &pbY, &pbW, &pbH);
+	const int prevScissor = g_PreviousScissorState;
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glEnable(GL_SCISSOR_TEST);
+	if (pbX > 0)
+	{
+		glScissor(0, 0, pbX, g_windowHeight);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	if (pbX + pbW < g_windowWidth)
+	{
+		glScissor(pbX + pbW, 0, g_windowWidth - (pbX + pbW), g_windowHeight);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	if (pbY > 0)
+	{
+		glScissor(0, 0, g_windowWidth, pbY);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	if (pbY + pbH < g_windowHeight)
+	{
+		glScissor(0, pbY + pbH, g_windowWidth, g_windowHeight - (pbY + pbH));
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	if (!prevScissor) { glDisable(GL_SCISSOR_TEST); g_PreviousScissorState = 0; }
+	else { g_PreviousScissorState = 1; }
+#endif
+}
+
 int g_cfg_pgxpTextureCorrection = 1;
 int g_cfg_pgxpZBuffer = 1;
 int g_cfg_bilinearFiltering = 0;

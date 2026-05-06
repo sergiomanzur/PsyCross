@@ -846,6 +846,15 @@ char PsyX_BeginScene()
 		const u_char g = activeDrawEnv.isbg ? activeDrawEnv.g0 : 0;
 		const u_char b = activeDrawEnv.isbg ? activeDrawEnv.b0 : 0;
 		GR_Clear(clipenv.x, clipenv.y, clipenv.w, clipenv.h, r, g, b);
+
+		// After bg-color clear: paint the 4:3 pillarbox bars black so a
+		// non-black bg color (e.g. KCET's white) doesn't leak into the
+		// inactive side regions and make 2D content look stretched. The
+		// 2D ortho already pillarboxes UI; we just hide the bg-color
+		// leak. 3D world rendering still fills the full window via hor+
+		// perspective and runs after this clear.
+		extern void GR_PaintPillarboxBars(void);
+		GR_PaintPillarboxBars();
 	}
 
 	begin_scene_flag = 1;
