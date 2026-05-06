@@ -176,14 +176,31 @@ void MakeLineArray(GrVertex* vertex, VERTTYPE* p0, VERTTYPE* p1, ushort gteidx)
 	ScreenCoordsToEmulator(vertex, 4);
 }
 
+/* PC port: runtime PGXP master gate. Defined in PsyX_render.cpp. When 0,
+ * ApplyVertexPGXP zeroes a_zw so the vertex shader's `a_zw.y > 100.0` branch
+ * falls through to the 2D ortho path (PSX-affine look). */
+extern int g_PsxUsePgxp;
+
 inline void ApplyVertexPGXP(GrVertex* v, VERTTYPE* p, float ofsX, float ofsY, ushort gteidx, int lookupOfs)
 {
 #if USE_PGXP
+	if (!g_PsxUsePgxp)
+	{
+		// PGXP master switch is OFF — leave a_zw zeroed so the shader takes
+		// the 2D-ortho branch. memset() in the caller already cleared this
+		// vertex; just be explicit about the contract.
+		v->z = 0.0f;
+		v->scr_h = 0.0f;
+		v->ofsX = 0.0f;
+		v->ofsY = 0.0f;
+		return;
+	}
+
 	uint lookup = PGXP_LOOKUP_VALUE(p[0], p[1]);
 
 	PGXPVData vd;
 	if (gteidx != 0xffff &&
-		g_cfg_pgxpTextureCorrection && 
+		g_cfg_pgxpTextureCorrection &&
 		PGXP_GetCacheData(&vd, lookup, gteidx + lookupOfs))
 	{
 		v->x = vd.px;

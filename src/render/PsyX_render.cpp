@@ -104,6 +104,13 @@ int g_PcHorPlusEnabled = 1;
 
 int g_cfg_pgxpTextureCorrection = 1;
 int g_cfg_pgxpZBuffer = 1;
+
+/* PC port (Silent Hill): runtime master gate for PGXP. Even when the binary
+ * is compiled with USE_PGXP=1, the game can flip this to 0 to fall back to
+ * the affine-2D-ortho path (the shader takes the `a_zw.y > 100.0` else branch
+ * because MakeVertex* writes 0 into a_zw when this is 0). Set from main_pc.c
+ * after PcConfig_Load runs (config key: use_pgxp). */
+int g_PsxUsePgxp = 0;
 int g_cfg_bilinearFiltering = 0;
 int g_cfg_affineTextures = 0;
 /* When non-zero, the GPU_DITHERING macro applies the 4x4 PSX-style ordered
