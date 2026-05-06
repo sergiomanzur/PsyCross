@@ -1634,7 +1634,17 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 	else
 	{
 		// setup default viewport
+		// Runtime PGXP gate: when g_PsxUsePgxp is on we use the
+		// fractional-coord ortho + perspective pair (PGXP-compatible
+		// shader path). When off, fall through to the legacy non-PGXP
+		// pixel-coord ortho even if USE_PGXP=1 was compiled in. This
+		// preserves the original "menus stretched at 16:9" look that
+		// the project shipped with pre-USE_PGXP=1, since the PGXP
+		// ortho is intrinsically 4:3 (pillarboxed) while the non-PGXP
+		// ortho fills the full disp.w directly.
 #if USE_PGXP
+	if (g_PsxUsePgxp)
+	{
 
 		// these constants below are guessed
 		const float perspectiveFOV = 0.9265f;
@@ -1645,7 +1655,10 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 
 		GR_Ortho2D(-0.5f * emuScreenAspect * PSX_SCREEN_ASPECT, 0.5f * emuScreenAspect * PSX_SCREEN_ASPECT, 0.5f, -0.5f, -1.0f, 1.0f);
 		GR_Perspective3D(perspectiveFOV, 1.0f, 1.0f / (emuScreenAspect * PSX_SCREEN_ASPECT), perspectiveZNear, perspectiveZFar);
-#else
+	}
+	else
+#endif
+#if 1 /* legacy non-PGXP ortho — used when USE_PGXP=0 OR g_PsxUsePgxp=0 */
 		{
 			// Hor+ widescreen: expand x range so the vertical FOV is preserved and
 			// extra horizontal content fills the wider display instead of stretching.
