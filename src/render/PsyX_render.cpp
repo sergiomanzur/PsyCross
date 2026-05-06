@@ -100,45 +100,7 @@ int g_dbg_texturelessMode = 0;
 
 // Set to 1 by game code only during states that render a 3D world (InGame, MapEvent).
 // When 0, GR_SetOffscreenState uses 4:3 ortho so 2D UI screens don't show VRAM garbage.
-// When 0 AND the window is wider than 4:3, GR_BeginScene/GR_SetOffscreenState set
-// glViewport + glScissor to a 4:3 sub-rect of the window so content is pillarboxed
-// (black bars on the sides) instead of stretched horizontally.
 int g_PcHorPlusEnabled = 1;
-
-// Compute the 4:3 inset rect inside the window. When window aspect == 4:3 the
-// rect is the full window. When wider, the rect is centered horizontally with
-// black-bar margins. Used to set viewport + scissor for pillarboxing.
-static void GR_ComputePillarboxRect(int* x, int* y, int* w, int* h)
-{
-	const float psxAspect = 4.0f / 3.0f;
-	const float winAspect = (g_windowHeight > 0)
-		? ((float)g_windowWidth / (float)g_windowHeight)
-		: psxAspect;
-
-	if (winAspect > psxAspect + 1e-3f)
-	{
-		// Wider than 4:3 — letterbox horizontally
-		*h = g_windowHeight;
-		*w = (int)((float)g_windowHeight * psxAspect + 0.5f);
-		*x = (g_windowWidth - *w) / 2;
-		*y = 0;
-	}
-	else if (winAspect < psxAspect - 1e-3f)
-	{
-		// Taller than 4:3 — letterbox vertically
-		*w = g_windowWidth;
-		*h = (int)((float)g_windowWidth / psxAspect + 0.5f);
-		*x = 0;
-		*y = (g_windowHeight - *h) / 2;
-	}
-	else
-	{
-		*x = 0;
-		*y = 0;
-		*w = g_windowWidth;
-		*h = g_windowHeight;
-	}
-}
 
 int g_cfg_pgxpTextureCorrection = 1;
 int g_cfg_pgxpZBuffer = 1;
@@ -508,13 +470,6 @@ void GR_BeginScene()
 	g_lastBoundTexture = 0;
 
 #if USE_OPENGL
-	// Disable scissor before depth/stencil clear so the clear covers the
-	// entire framebuffer regardless of leftover scissor state from prior
-	// frames (GR_SetupClipMode and GR_PaintPillarboxBars both leave it
-	// possibly enabled).
-	glDisable(GL_SCISSOR_TEST);
-	g_PreviousScissorState = 0;
-
 #ifdef RENDERER_OGLES
 	glClearDepthf(1.0f);
 #else
@@ -525,22 +480,7 @@ void GR_BeginScene()
 #endif
 
 	GR_UpdateVRAM();
-
-	// Choose viewport: full window during hor+ widescreen 3D, or 4:3 inset
-	// when pillarboxing (uiScaling=0). OpenGL's viewport clips rendered
-	// geometry to the inset rect so content can't bleed into the side
-	// bars; the bars themselves are painted black in PsyX_BeginScene
-	// after the bg-color clear (see PsyX_PaintPillarboxBars).
-	if (!g_PcHorPlusEnabled)
-	{
-		int pbX, pbY, pbW, pbH;
-		GR_ComputePillarboxRect(&pbX, &pbY, &pbW, &pbH);
-		GR_SetViewPort(pbX, pbY, pbW, pbH);
-	}
-	else
-	{
-		GR_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
-	}
+	GR_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
 
 	if (g_dbg_wireframeMode)
 	{
@@ -551,64 +491,6 @@ void GR_BeginScene()
 		glClear(GL_COLOR_BUFFER_BIT);
 #endif
 	}
-}
-
-// Paint the pillarbox bar regions black using glClear with a scoped
-// scissor. Called from PsyX_BeginScene after GR_Clear, when pillarboxing
-// is active, so the bars stay black even though the bg-color clear ran
-// across the whole framebuffer. Splits into up to two glClear calls
-// (one per side / top+bottom) instead of clearing the whole window
-// black + then bg-color-clearing the inset, since that would require
-// tighter coupling with PsyX_BeginScene's clear path.
-void GR_PaintPillarboxBars(void)
-{
-	if (g_PcHorPlusEnabled)
-		return;
-
-#if USE_OPENGL
-	int pbX, pbY, pbW, pbH;
-	GR_ComputePillarboxRect(&pbX, &pbY, &pbW, &pbH);
-
-	const int prevScissor = g_PreviousScissorState;
-
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glEnable(GL_SCISSOR_TEST);
-
-	// Left bar
-	if (pbX > 0)
-	{
-		glScissor(0, 0, pbX, g_windowHeight);
-		glClear(GL_COLOR_BUFFER_BIT);
-	}
-	// Right bar
-	if (pbX + pbW < g_windowWidth)
-	{
-		glScissor(pbX + pbW, 0, g_windowWidth - (pbX + pbW), g_windowHeight);
-		glClear(GL_COLOR_BUFFER_BIT);
-	}
-	// Top bar (when window is taller than 4:3)
-	if (pbY > 0)
-	{
-		glScissor(0, 0, g_windowWidth, pbY);
-		glClear(GL_COLOR_BUFFER_BIT);
-	}
-	// Bottom bar
-	if (pbY + pbH < g_windowHeight)
-	{
-		glScissor(0, pbY + pbH, g_windowWidth, g_windowHeight - (pbY + pbH));
-		glClear(GL_COLOR_BUFFER_BIT);
-	}
-
-	if (!prevScissor)
-	{
-		glDisable(GL_SCISSOR_TEST);
-		g_PreviousScissorState = 0;
-	}
-	else
-	{
-		g_PreviousScissorState = 1;
-	}
-#endif
 }
 
 void GR_EndScene()
@@ -1809,20 +1691,7 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 	}
 	else
 	{
-		// Restore the on-screen viewport. When pillarboxing (uiScaling=0
-		// + non-4:3 window), use the 4:3 inset rect so content lands
-		// inside the bars painted by GR_PaintPillarboxBars; otherwise
-		// fill the window.
-		if (!g_PcHorPlusEnabled)
-		{
-			int pbX, pbY, pbW, pbH;
-			GR_ComputePillarboxRect(&pbX, &pbY, &pbW, &pbH);
-			GR_SetViewPort(pbX, pbY, pbW, pbH);
-		}
-		else
-		{
-			GR_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
-		}
+		GR_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
 
 		/* PC port: skip the offscreen-RT → VRAM writeback when a TIM-protect
 		 * screen is active. This branch fires whenever a draw split has

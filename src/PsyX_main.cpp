@@ -846,11 +846,6 @@ char PsyX_BeginScene()
 		const u_char g = activeDrawEnv.isbg ? activeDrawEnv.g0 : 0;
 		const u_char b = activeDrawEnv.isbg ? activeDrawEnv.b0 : 0;
 		GR_Clear(clipenv.x, clipenv.y, clipenv.w, clipenv.h, r, g, b);
-
-		/* Pillarbox: re-paint the side/top/bottom bars black so the
-		 * bg-color clear above doesn't bleed into them. No-op when
-		 * uiScaling=stretched or when the window is exactly 4:3. */
-		GR_PaintPillarboxBars();
 	}
 
 	begin_scene_flag = 1;

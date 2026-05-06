@@ -218,11 +218,6 @@ extern void			GR_SetWireframe(int enable);
 
 extern void			GR_DestroyTexture(TextureID texture);
 extern void			GR_Clear(int x, int y, int w, int h, unsigned char r, unsigned char g, unsigned char b);
-
-/* Paint the side/top/bottom bars black when pillarboxing (uiScaling=0
- * + non-4:3 window) is active. Called from PsyX_BeginScene after the
- * bg-color GR_Clear so the bars stay visually distinct from the bg. */
-extern void			GR_PaintPillarboxBars(void);
 extern void			GR_ClearVRAM(int x, int y, int w, int h, unsigned char r, unsigned char g, unsigned char b);
 extern void			GR_UpdateVertexBuffer(const GrVertex* vertices, int count);
 extern void			GR_DrawTriangles(int start_vertex, int triangles);
