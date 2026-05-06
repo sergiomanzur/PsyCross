@@ -414,9 +414,14 @@ int GTE_RotTransPers(int idx, int lm)
 	temp.pz = fMAC3 * one_by_v * g_pgxpZScale + g_pgxpZOffset;
 
 	// calculate projected values for cache
-	temp.x = (double(C2_OFX) + double(float(C2_IR1) * float(h_over_sz3))) / float(1 << 16);
-	temp.y = (double(C2_OFY) + double(float(C2_IR2) * float(h_over_sz3))) / float(1 << 16);
-	temp.z = float(max(C2_SZ3, C2_H / 2)) / float(1 << 16);
+	// PC port: VERTTYPE is `short` (see pgxp_defs.h), so these assignments
+	// truncate the fractional pixel coords down to the same integer bit
+	// pattern that gte_stsxy writes via *(uint*)&g_FP_SXYZ2.x — that's the
+	// hash key used by PGXP_LOOKUP_VALUE, so it MUST match what the C-side
+	// prim writer (setXY0) puts into poly->x0/y0.
+	temp.x = (VERTTYPE)((double(C2_OFX) + double(float(C2_IR1) * float(h_over_sz3))) / float(1 << 16));
+	temp.y = (VERTTYPE)((double(C2_OFY) + double(float(C2_IR2) * float(h_over_sz3))) / float(1 << 16));
+	temp.z = (VERTTYPE)(float(max(C2_SZ3, C2_H / 2)) / float(1 << 16));
 
 	g_FP_SXYZ2 = temp;
 

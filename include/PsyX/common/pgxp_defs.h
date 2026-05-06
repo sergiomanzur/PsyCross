@@ -11,15 +11,17 @@
 
 //-------------------------------------
 
-// in C++, VERTTYPE can be declared as half
-// use `_HF` to convert to half whenever you in C mode.
-#if defined(_LANGUAGE_C_PLUS_PLUS)||defined(__cplusplus)||defined(c_plusplus)
-typedef half VERTTYPE;
-#define _HF(x) x
-#else
+// PC port (Silent Hill): VERTTYPE is `short` in BOTH C and C++ even when USE_PGXP=1.
+// Originally upstream used `half` in C++, but the game writes prim XY fields as raw
+// shorts via setXY0() — a bit-pattern mismatch with half-floats produces NaN vertices
+// at the boundary. The high-precision PGXP data flows through PGXPVData via the
+// PGXP cache lookup + the `a_zw` vertex attribute, NOT through the prim XY shorts,
+// so keeping VERTTYPE=short here costs us nothing.
+//
+// `_HF()` is therefore a no-op everywhere (kept as a symbol so legacy call sites
+// like libgpu.c text-rendering still compile).
 typedef short VERTTYPE;
-#define _HF(x) to_half_float(x)
-#endif
+#define _HF(x) (x)
 
 typedef struct
 {
@@ -62,8 +64,10 @@ ushort	PGXP_GetIndex(int checkTransform);
 #endif
 
 // special PGXP type
+// PC port: vx/vy were `half` upstream — switched to `short` to match VERTTYPE
+// (see note above). The pgxp_index carries the cache identity separately.
 typedef struct {		/* 2D short vector */
-	half vx, vy;
+	short vx, vy;
 	ushort pgxp_index;
 } DVECTORF;
 
