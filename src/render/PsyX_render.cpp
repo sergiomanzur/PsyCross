@@ -726,7 +726,7 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 		"		vec4(0.0,  0.0,  1.0,  0.0),\n"\
 		"		vec4(a_zw.z, -a_zw.w,  0.0,  1.0));\n"\
 		"	vec2 geom_ofs = vec2(0.5, 0.5);\n"\
-		"	vec4 fragPosition = (a_zw.y > 100.0 ? ofsMat * (Projection3D * vec4((a_position.xy + geom_ofs) * vec2(1.0,-1.0) * a_zw.y, a_zw.x, 1.0)) : (Projection * vec4(a_position.xy, 0.5, 1.0)));\n" \
+		"	vec4 fragPosition = (a_zw.y > 100.0 ? ofsMat * (Projection3D * vec4((a_position.xy + geom_ofs) * vec2(1.0,-1.0) * a_zw.y, a_zw.x, 1.0)) : (Projection * vec4(a_position.xy, 0.0, 1.0)));\n" \
 		"	gl_Position = fragPosition;\n"
 #else
 #define GTE_PERSPECTIVE_CORRECTION \
