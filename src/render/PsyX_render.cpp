@@ -119,6 +119,7 @@ int g_cfg_affineTextures = 0;
  * (which masks texture-page seams and gives the authentic look) on
  * primitives that don't request dither at the prim-tag level. */
 int g_cfg_psxDither = 1;
+int g_PsxDitherSuppressed = 0;
 
 int vram_need_update = 1;
 
@@ -1436,9 +1437,13 @@ void GR_SetTexture(TextureID texture, TexFormat texFormat)
 
 	/* Push the dither-force uniform every shader bind. Cheap (single
 	 * float upload) and ensures runtime config changes (if we add a
-	 * hotkey toggle later) take effect on the next primitive. */
+	 * hotkey toggle later) take effect on the next primitive.
+	 * g_PsxDitherSuppressed lets the game disable dither per-frame on
+	 * 2D-only states (menus, logos, inventory) without changing the
+	 * config flag. */
 	if (u_ditherForceLoc != -1)
-		glUniform1f(u_ditherForceLoc, g_cfg_psxDither ? 1.0f : 0.0f);
+		glUniform1f(u_ditherForceLoc,
+		            (g_cfg_psxDither && !g_PsxDitherSuppressed) ? 1.0f : 0.0f);
 
 	/* Pixel scale = window width / PSX native (320). Scales the dither
 	 * cell so each PSX-pixel-equivalent on screen gets its own matrix

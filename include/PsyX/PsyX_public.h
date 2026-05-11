@@ -68,6 +68,14 @@ extern int							g_cfg_pgxpTextureCorrection;
  * the 2D-ortho (affine PSX-look) branch. */
 extern int							g_PsxUsePgxp;
 
+/* PC port: per-frame override that suppresses dither even when
+ * g_cfg_psxDither is enabled. Game code sets this to 1 on 2D-only states
+ * (logos, menus, options, save/load, map screen, inventory) so the dither
+ * pattern doesn't visibly chew up flat-shaded 2D art. Cleared back to 0
+ * during 3D gameplay so the PSX look is preserved. The render path
+ * effectively uses (g_cfg_psxDither && !g_PsxDitherSuppressed). */
+extern int							g_PsxDitherSuppressed;
+
 /* Debug inputs */
 extern GameDebugKeysHandlerFunc		g_dbg_gameDebugKeys;
 extern GameDebugMouseHandlerFunc	g_dbg_gameDebugMouse;
