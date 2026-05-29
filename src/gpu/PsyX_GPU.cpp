@@ -788,11 +788,12 @@ void ParsePrimitivesLinkedList(u_long* p, int singlePrimitive)
 	}
 	else
 	{
-		// Step per linked-list entry (which includes individual primitives,
-		// not just bucket transitions). Use the safety-loop limit as the
-		// denominator so z_view never exceeds ±1.0 regardless of scene
-		// primitive count — exceeding 1.0 causes GPU geometry clipping.
-		const float otBucketStep = 2.0f / 16383.0f;
+		// Bucket-accurate depth: all primitives inside the same OT bucket share
+		// one depth value — matching the PSX's painter's-algorithm intent.
+		// g_otBucketDepth advances only at tagLength==0 bucket-boundary entries.
+		int otBucketIdx = 0;
+		const float otBucketStep = (g_currentOTBucketCount > 1)
+			? (2.0f / (float)(g_currentOTBucketCount - 1)) : 0.0f;
 		g_otBucketDepth = -1.0f;
 		// walk OT_TAG linked list with safety guards
 		uintptr_t basePacket = reinterpret_cast<uintptr_t>(p);
@@ -836,6 +837,13 @@ void ParsePrimitivesLinkedList(u_long* p, int singlePrimitive)
 					}
 				}
 			}
+			else if (tagLength == 0)
+			{
+				// OT bucket boundary — advance to the next bucket's depth.
+				g_otBucketDepth = -1.0f + (float)otBucketIdx * otBucketStep;
+				if (g_otBucketDepth > 1.0f) g_otBucketDepth = 1.0f;
+				otBucketIdx++;
+			}
 			else if (tagLength > 32)
 			{
 				eprinterr("got invalid tag length %d, code %d\n", tagLength, reinterpret_cast<P_TAG*>(basePacket)->code);
@@ -856,8 +864,6 @@ void ParsePrimitivesLinkedList(u_long* p, int singlePrimitive)
 
 			GPUDrawSplit& lastSplit = g_splits[g_splitIndex];
 			lastSplit.numVerts = g_vertexIndex - lastSplit.startVertex;
-
-			g_otBucketDepth += otBucketStep;
 
 			if (isendprim(basePacket))
 				break;
