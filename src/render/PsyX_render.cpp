@@ -997,13 +997,10 @@ ShaderID GR_Shader_Compile(const char* source)
 	}
 
 	glBindAttribLocation(program, a_position, "a_position");
+	glBindAttribLocation(program, a_zw, "a_zw");
 	glBindAttribLocation(program, a_texcoord, "a_texcoord");
 	glBindAttribLocation(program, a_color, "a_color");
 	glBindAttribLocation(program, a_extra, "a_extra");
-
-#if USE_PGXP
-	glBindAttribLocation(program, a_zw, "a_zw");
-#endif
 
 	glLinkProgram(program);
 	if(GR_Shader_CheckProgramStatus(program) == 0)
