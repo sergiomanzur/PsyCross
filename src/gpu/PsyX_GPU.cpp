@@ -10,6 +10,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "psx/gtereg.h"
+
 #define GET_TPAGE_FORMAT(tpage) ((TexFormat)((tpage >> 7) & 0x3))
 #define GET_TPAGE_BLEND(tpage)  ((BlendMode)(((tpage >> 5) & 3) + 1))
 
@@ -34,6 +36,105 @@ int overrideTextureHeight = 0;
 
 int g_GPUDisabledState = 0;
 int g_DrawPrimMode = 0;
+
+// Per-primitive GTE SZ depth table.  Populated at addPrim time (GTE SZ registers
+// valid immediately after RotTransPers calls), looked up during primitive parsing
+// to give GL per-vertex perspective depth.  Cleared each GsDrawOt call.
+// 4096 slots, linear probe ≤16; collision rate is negligible for typical scene sizes.
+#define SZ_TABLE_BITS 12
+#define SZ_TABLE_SIZE (1 << SZ_TABLE_BITS)
+#define SZ_TABLE_MASK (SZ_TABLE_SIZE - 1)
+
+struct SZEntry { uintptr_t key; uint16_t sz[4]; };
+static SZEntry g_szTable[SZ_TABLE_SIZE];
+
+extern "C" void PsyX_CaptureGteDepths(void* prim)
+{
+	uintptr_t key = (uintptr_t)prim;
+	int slot = (int)((key >> 2) & SZ_TABLE_MASK);
+	for (int i = 0; i < 16; i++) {
+		int s = (slot + i) & SZ_TABLE_MASK;
+		if (g_szTable[s].key == 0 || g_szTable[s].key == key) {
+			g_szTable[s].key = key;
+			g_szTable[s].sz[0] = (uint16_t)C2_SZ0;
+			g_szTable[s].sz[1] = (uint16_t)C2_SZ1;
+			g_szTable[s].sz[2] = (uint16_t)C2_SZ2;
+			g_szTable[s].sz[3] = (uint16_t)C2_SZ3;
+			return;
+		}
+	}
+	// Probe exhausted — overwrite initial slot
+	g_szTable[slot].key = key;
+	g_szTable[slot].sz[0] = (uint16_t)C2_SZ0;
+	g_szTable[slot].sz[1] = (uint16_t)C2_SZ1;
+	g_szTable[slot].sz[2] = (uint16_t)C2_SZ2;
+	g_szTable[slot].sz[3] = (uint16_t)C2_SZ3;
+}
+
+extern "C" void PsyX_ClearGteDepthTable(void)
+{
+	memset(g_szTable, 0, sizeof(g_szTable));
+}
+
+static bool PsyX_LookupGteDepths(const void* prim, uint16_t* sz)
+{
+	uintptr_t key = (uintptr_t)prim;
+	int slot = (int)((key >> 2) & SZ_TABLE_MASK);
+	for (int i = 0; i < 16; i++) {
+		int s = (slot + i) & SZ_TABLE_MASK;
+		if (g_szTable[s].key == key) {
+			sz[0] = g_szTable[s].sz[0]; sz[1] = g_szTable[s].sz[1];
+			sz[2] = g_szTable[s].sz[2]; sz[3] = g_szTable[s].sz[3];
+			return true;
+		}
+		if (g_szTable[s].key == 0) break;
+	}
+	return false;
+}
+
+// Overrides flat bucket z with per-vertex perspective depth from GTE SZ registers.
+// For quads (4x RTPS): SZ0=V0,SZ1=V1,SZ2=V2,SZ3=V3; buffer order V0,V1,V3,V2 (swap).
+//   → sz[0]→v[0], sz[1]→v[1], sz[3]→v[2], sz[2]→v[3].
+// For tris (3x RTPS): SZ1=V0,SZ2=V1,SZ3=V2 (SZ0 stale).
+//   → sz[1]→v[0], sz[2]→v[1], sz[3]→v[2].
+// Formula: z_view = 1 - 2*sz_v/max_sz, max_sz = 2*sz_avg/(1-bucket_depth).
+// Average vertex lands exactly on g_otBucketDepth; outliers vary proportionally.
+static void ApplyGtePerVertexDepth(GrVertex* vertex, const P_TAG* polyTag, bool isQuad)
+{
+	uint16_t sz[4];
+	if (!PsyX_LookupGteDepths(polyTag, sz))
+		return;
+
+	float sv0, sv1, sv2, sv3 = 0.0f;
+	if (isQuad) {
+		sv0 = (float)sz[0]; sv1 = (float)sz[1];
+		sv2 = (float)sz[3]; sv3 = (float)sz[2];  // buffer[2]=V3, buffer[3]=V2
+	} else {
+		sv0 = (float)sz[1]; sv1 = (float)sz[2]; sv2 = (float)sz[3];  // SZ1=V0 etc.
+	}
+
+	float sz_avg = isQuad ? (sv0 + sv1 + sv2 + sv3) * 0.25f
+	                      : (sv0 + sv1 + sv2) * (1.0f / 3.0f);
+	if (sz_avg < 1.0f) return;
+
+	float denom = 1.0f - g_otBucketDepth;
+	if (denom < 0.01f) denom = 0.01f;
+
+	float rmax = denom / (2.0f * sz_avg);  // 1/max_sz
+	float z0 = 1.0f - 2.0f * sv0 * rmax;
+	float z1 = 1.0f - 2.0f * sv1 * rmax;
+	float z2 = 1.0f - 2.0f * sv2 * rmax;
+
+#define CLAMP1(v) ((v) < -1.0f ? -1.0f : (v) > 1.0f ? 1.0f : (v))
+	vertex[0].z = CLAMP1(z0);
+	vertex[1].z = CLAMP1(z1);
+	vertex[2].z = CLAMP1(z2);
+	if (isQuad) {
+		float z3 = 1.0f - 2.0f * sv3 * rmax;
+		vertex[3].z = CLAMP1(z3);
+	}
+#undef CLAMP1
+}
 
 struct GPUDrawSplit
 {
@@ -1133,6 +1234,7 @@ static int ProcessFlatPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexTriangle(firstVertex, &poly->x0, &poly->x1, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, false);
 		MakeTexcoordTriangleZero(firstVertex, 0);
 		MakeColourTriangle(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0);
 
@@ -1155,6 +1257,7 @@ static int ProcessFlatPoly(P_TAG* polyTag)
 
 			GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 			MakeVertexTriangle(firstVertex, &poly->x0, &poly->x1, &poly->x2, gteIndex);
+			ApplyGtePerVertexDepth(firstVertex, polyTag, false);
 			MakeTexcoordTriangle(firstVertex, &poly->u0, &poly->u1, &poly->u2, poly->tpage, poly->clut, GET_TPAGE_DITHER(activeDrawEnv.tpage) || activeDrawEnv.dtd);
 			MakeColourTriangle(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0);
 
@@ -1174,6 +1277,7 @@ static int ProcessFlatPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexQuad(firstVertex, &poly->x0, &poly->x1, &poly->x3, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, true);
 		MakeTexcoordQuadZero(firstVertex, 0);
 		MakeColourQuad(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0, &poly->r0);
 
@@ -1233,6 +1337,7 @@ static int ProcessFlatPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexQuad(firstVertex, &poly->x0, &poly->x1, &poly->x3, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, true);
 		MakeTexcoordQuad(firstVertex, &poly->u0, &poly->u1, &poly->u3, &poly->u2, poly->tpage, poly->clut, GET_TPAGE_DITHER(activeDrawEnv.tpage) || activeDrawEnv.dtd);
 		MakeColourQuad(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0, &poly->r0);
 
@@ -1267,6 +1372,7 @@ static int ProcessGouraudPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexTriangle(firstVertex, &poly->x0, &poly->x1, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, false);
 		MakeTexcoordTriangleZero(firstVertex, 1);
 		MakeColourTriangle(firstVertex, shadeTexOn, &poly->r0, &poly->r1, &poly->r2);
 
@@ -1292,6 +1398,7 @@ static int ProcessGouraudPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexTriangle(firstVertex, &poly->x0, &poly->x1, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, false);
 		MakeTexcoordTriangle(firstVertex, &poly->u0, &poly->u1, &poly->u2, poly->tpage, poly->clut, GET_TPAGE_DITHER(activeDrawEnv.tpage) || activeDrawEnv.dtd);
 		MakeColourTriangle(firstVertex, shadeTexOn, &poly->r0, &poly->r1, &poly->r2);
 
@@ -1315,6 +1422,7 @@ static int ProcessGouraudPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexQuad(firstVertex, &poly->x0, &poly->x1, &poly->x3, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, true);
 		MakeTexcoordQuadZero(firstVertex, 1);
 		MakeColourQuad(firstVertex, shadeTexOn, &poly->r0, &poly->r1, &poly->r3, &poly->r2);
 
@@ -1342,6 +1450,7 @@ static int ProcessGouraudPoly(P_TAG* polyTag)
 
 		GrVertex* firstVertex = &g_vertexBuffer[g_vertexIndex];
 		MakeVertexQuad(firstVertex, &poly->x0, &poly->x1, &poly->x3, &poly->x2, gteIndex);
+		ApplyGtePerVertexDepth(firstVertex, polyTag, true);
 		MakeTexcoordQuad(firstVertex, &poly->u0, &poly->u1, &poly->u3, &poly->u2, poly->tpage, poly->clut, GET_TPAGE_DITHER(activeDrawEnv.tpage) || activeDrawEnv.dtd);
 		MakeColourQuad(firstVertex, shadeTexOn, &poly->r0, &poly->r1, &poly->r3, &poly->r2);
 

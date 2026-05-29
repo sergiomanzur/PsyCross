@@ -204,7 +204,19 @@ extern	int (*GPU_printf)(const char *fmt, ...);
 #define getlen(p)    		(u_char)(((P_TAG *)(p))->len)
 #define getcode(p)   		(u_char)(((P_TAG *)(p))->code)
 
+#ifdef SH_PC_PORT
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void PsyX_CaptureGteDepths(void* prim);
+extern void PsyX_ClearGteDepthTable(void);
+#ifdef __cplusplus
+}
+#endif
+#define addPrim(ot, p)		(PsyX_CaptureGteDepths((void*)(p)), setaddr(p, getaddr(ot)), setaddr(ot, p))
+#else
 #define addPrim(ot, p)		setaddr(p, getaddr(ot)), setaddr(ot, p)
+#endif
 
 #define addPrims(ot, p0, p1)	setaddr(p1, getaddr(ot)),setaddr(ot, p0)
 
