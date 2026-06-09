@@ -50,6 +50,7 @@ extern "C" {
 extern PsyXControllerMapping		g_cfg_controllerMapping;
 extern PsyXKeyboardMapping			g_cfg_keyboardMapping;
 extern int							g_cfg_controllerToSlotMapping[2];
+extern int							g_cfg_controllerMovement;	/* PC: 0=analog 1=dpad 2=both */
 
 /* Game inputs */
 extern GameOnTextInputHandler		g_cfg_gameOnTextInput;

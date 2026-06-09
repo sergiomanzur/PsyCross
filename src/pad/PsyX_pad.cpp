@@ -23,6 +23,11 @@ typedef struct
 
 int						g_cfg_controllerToSlotMapping[MAX_CONTROLLERS] = { -1, -1 };
 
+/* PC port: movement source for the controller. 0 = analog stick only,
+ * 1 = d-pad only (digital), 2 = both (default). Set from config in main_pc.c.
+ * Drives whether the emulated pad sits in analog (0x73) or digital (0x41) mode. */
+int						g_cfg_controllerMovement = 2;
+
 PsyXController			g_controllers[MAX_CONTROLLERS];
 const u_char*			g_sdlKeyboardState = NULL;
 
@@ -210,34 +215,13 @@ void PsyX_Pad_InternalPadUpdates()
 
 			PsyX_Pad_UpdateGameControllerInput(controller->gc, pad);
 
-			ushort test = *(u_short*)pad->buttons;
-
-			// In order to switch From/To analog user has to use left gamepad stick
-
-			// Select + Start pressed
-			if ((test & 0x1) == 0 && (test & 0x8) == 0)
+			// PC port: analog mode is config-driven (controller_movement) rather
+			// than the original Select+Start manual toggle. analog/both -> 0x73
+			// (left stick active), dpad -> 0x41 (digital, stick ignored). Only
+			// when a real controller is attached; keyboard stays digital below.
+			if (controller->gc && SDL_GameControllerGetAttached(controller->gc))
 			{
-				*(u_short*)pad->buttons = 0xffff;
-
-				if (!controller->switchingAnalog)
-				{
-					// switch to analog state
-					if (pad->id == 0x41)
-					{
-						eprintf("Port %d ANALOG: ON\n", i + 1);
-						pad->id = 0x73;
-					}
-					else
-					{
-						eprintf("Port %d ANALOG: OFF\n", i + 1);
-						pad->id = 0x41;
-					}
-				}
-				controller->switchingAnalog = true;
-			}
-			else
-			{
-				controller->switchingAnalog = false;
+				pad->id = (g_cfg_controllerMovement == 1) ? 0x41 : 0x73;
 			}
 
 			// Update keyboard for PAD
