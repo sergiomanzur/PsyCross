@@ -100,6 +100,11 @@ int g_dbg_texturelessMode = 0;
 // When 0, GR_SetOffscreenState uses 4:3 ortho so 2D UI screens don't show VRAM garbage.
 int g_PcHorPlusEnabled = 1;
 
+/* PC port: pillarbox 2D screens (menus, load screen) with 4:3 black bars
+ * instead of stretching the 4:3 content to fill a widescreen window. Set
+ * from g_PcConfig.menuPillarbox in main_pc.c. Default on. */
+int g_PcMenuPillarbox = 1;
+
 /* Widescreen presentation mode for 3D gameplay (only used when g_PcHorPlusEnabled=1):
  *   0 = Pillarbox (PSX-faithful): render 4:3 content centered in a 16:9 frame
  *       with black bars on the sides. Characters and scene framing identical to
@@ -1717,7 +1722,14 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 		 * all use the full window viewport as before. */
 		bool pillarbox = false;
 		int vpX = 0, vpY = 0, vpW = g_windowWidth, vpH = g_windowHeight;
-		if (g_PcHorPlusEnabled && g_PcWidescreenMode == 0 && g_windowHeight > 0) {
+		/* Pillarbox the central 4:3 region (black bars) when either:
+		 *  - 3D gameplay in PSX-faithful pillarbox mode (HorPlus + mode 0), or
+		 *  - a 2D screen (menus/load: HorPlusEnabled=0) with g_PcMenuPillarbox on,
+		 *    so 4:3 UI shows true 4:3 with bars instead of stretching to fill. */
+		const bool wantPillarbox =
+			(g_PcHorPlusEnabled && g_PcWidescreenMode == 0) ||
+			(!g_PcHorPlusEnabled && g_PcMenuPillarbox);
+		if (wantPillarbox && g_windowHeight > 0) {
 			const float psxAspect = 4.0f / 3.0f;
 			const float winAspect = (float)g_windowWidth / (float)g_windowHeight;
 			if (winAspect > psxAspect) {
