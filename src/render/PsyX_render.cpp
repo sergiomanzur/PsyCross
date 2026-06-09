@@ -1676,10 +1676,32 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 				GR_Ortho2D(-margin, psxW + margin, psxH, 0, -1.0f, 1.0f);
 			} else {
 				/* Pillarbox (mode 0, default) or stretch (mode 2): 4:3 ortho.
-				 * The viewport setup in the !enable branch handles the
-				 * pillarbox-vs-stretch difference (narrow viewport vs full). */
+				 * The viewport (below) handles pillarbox vs full-window. */
 				GR_Ortho2D(0.0f, psxW, psxH, 0.0f, -1.0f, 1.0f);
 			}
+		}
+
+		/* Display viewport — set EVERY call, not just on offscreen-state
+		 * change. GR_BeginScene resets the viewport to the full window each
+		 * frame, so a stable screen (e.g. a menu that never toggles the
+		 * offscreen state) would otherwise lose its pillarbox after frame 1.
+		 * Pillarbox the central 4:3 region (black bars) for 3D gameplay in
+		 * mode 0, or for 2D screens (menus/load) when g_PcMenuPillarbox is on;
+		 * otherwise full window (stretch). */
+		{
+			int vpX = 0, vpY = 0, vpW = g_windowWidth, vpH = g_windowHeight;
+			const bool wantPillarbox =
+				(g_PcHorPlusEnabled && g_PcWidescreenMode == 0) ||
+				(!g_PcHorPlusEnabled && g_PcMenuPillarbox);
+			if (wantPillarbox && g_windowHeight > 0) {
+				const float psxAspect = 4.0f / 3.0f;
+				const float winAspect = (float)g_windowWidth / (float)g_windowHeight;
+				if (winAspect > psxAspect) {
+					vpW = (int)(g_windowHeight * psxAspect + 0.5f);
+					vpX = (g_windowWidth - vpW) / 2;
+				}
+			}
+			GR_SetViewPort(vpX, vpY, vpW, vpH);
 		}
 
 	}
@@ -1712,34 +1734,8 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 	}
 	else
 	{
-		/* Pillarbox viewport: when g_PcWidescreenMode==0 (default) and we're
-		 * in 3D gameplay (g_PcHorPlusEnabled=1) on a widescreen window, restrict
-		 * the GL viewport to the central 4:3 region so 3D content renders only
-		 * there. Pixels outside stay at the GL clear color (black) — giving us
-		 * a true PSX-faithful 4:3 image centered in the 16:9 frame.
-		 *
-		 * Hor+ (mode 1) and stretch (mode 2), and 2D UI (HorPlusEnabled=0)
-		 * all use the full window viewport as before. */
-		bool pillarbox = false;
-		int vpX = 0, vpY = 0, vpW = g_windowWidth, vpH = g_windowHeight;
-		/* Pillarbox the central 4:3 region (black bars) when either:
-		 *  - 3D gameplay in PSX-faithful pillarbox mode (HorPlus + mode 0), or
-		 *  - a 2D screen (menus/load: HorPlusEnabled=0) with g_PcMenuPillarbox on,
-		 *    so 4:3 UI shows true 4:3 with bars instead of stretching to fill. */
-		const bool wantPillarbox =
-			(g_PcHorPlusEnabled && g_PcWidescreenMode == 0) ||
-			(!g_PcHorPlusEnabled && g_PcMenuPillarbox);
-		if (wantPillarbox && g_windowHeight > 0) {
-			const float psxAspect = 4.0f / 3.0f;
-			const float winAspect = (float)g_windowWidth / (float)g_windowHeight;
-			if (winAspect > psxAspect) {
-				vpW = (int)(g_windowHeight * psxAspect + 0.5f);
-				vpX = (g_windowWidth - vpW) / 2;
-				pillarbox = true;
-			}
-		}
-		(void)pillarbox;
-		GR_SetViewPort(vpX, vpY, vpW, vpH);
+		/* (Display viewport / pillarbox is set above, before the early-out,
+		 * so it applies every call. Here we only do the VRAM writeback.) */
 
 		/* PC port: skip the offscreen-RT → VRAM writeback when a TIM-protect
 		 * screen is active. This branch fires whenever a draw split has
