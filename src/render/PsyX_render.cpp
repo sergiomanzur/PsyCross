@@ -1494,6 +1494,37 @@ void GR_Clear(int x, int y, int w, int h, unsigned char r, unsigned char g, unsi
 	framebuffer_need_update = 1;
 
 #if USE_OPENGL
+	/* PC port: when pillarboxing (4:3 content centered in a wider window), keep
+	 * the side bars black even when the game clears the framebuffer to a
+	 * non-black color. The item-examine ("story item") screen clears to the gray
+	 * fog color, which otherwise tints the bars. Clear the whole window black,
+	 * then clear only the 4:3 region to the requested color via a scissor.
+	 * Skipped when the clear is already black (menus) — those bars are fine. */
+	const bool wantPillarbox =
+		(g_PcHorPlusEnabled && g_PcWidescreenMode == 0) ||
+		(!g_PcHorPlusEnabled && g_PcMenuPillarbox);
+	if (wantPillarbox && g_windowWidth > 0 && g_windowHeight > 0 && (r | g | b) != 0)
+	{
+		const float psxAspect = 4.0f / 3.0f;
+		const float winAspect = (float)g_windowWidth / (float)g_windowHeight;
+		if (winAspect > psxAspect)
+		{
+			const int vpW = (int)(g_windowHeight * psxAspect + 0.5f);
+			const int vpX = (g_windowWidth - vpW) / 2;
+
+			glDisable(GL_SCISSOR_TEST);
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			glEnable(GL_SCISSOR_TEST);
+			glScissor(vpX, 0, vpW, g_windowHeight);
+			glClearColor(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glDisable(GL_SCISSOR_TEST);
+			return;
+		}
+	}
+
 	glClearColor(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #endif
