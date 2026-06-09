@@ -1348,7 +1348,12 @@ static int ProcessFlatPoly(P_TAG* polyTag)
 			short clut = poly->clut;
 			int tx = tpage & 0xF;          /* page X (0..15) */
 			int ty = (tpage >> 4) & 0x1;   /* page Y (0..1) */
-			int clutY = (clut >> 6) & 0x1FF; /* clut row in VRAM (0..511) */
+			/* Real clut Y is 9 bits (0..511); bit 15 is reserved/0 on valid
+			 * prims. Read unsigned and do NOT mask to 0x1FF so a set bit 15
+			 * (uninitialized/garbage clut) pushes clutY past 511 and trips the
+			 * guard. The old `& 0x1FF` capped clutY at 511, making `> 511` dead
+			 * code that never dropped or logged a single prim. */
+			int clutY = ((unsigned short)clut) >> 6;
 			(void)tx; (void)ty;
 			if (clutY > 511) {
 				static int s_pft4DropCount = 0;
