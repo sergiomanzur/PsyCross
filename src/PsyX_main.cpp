@@ -654,6 +654,11 @@ static void sh_terminate_handler()
 {
 	fprintf(stderr, "[PsyX] FATAL: std::terminate() called!\n");
 	fflush(stderr);
+	/* abort() skips atexit/stdio teardown, so the host's buffered log
+	 * (up to 64KB of tail) would be silently lost on every terminate.
+	 * Flush it here so the log survives. */
+	if (g_logStream)
+		fflush(g_logStream);
 	abort();
 }
 
@@ -1082,6 +1087,12 @@ void PsyX_Exit()
 	exit(0);
 }
 
+/* Stage markers: every normal close currently ends in std::terminate (an
+ * exception escaping somewhere below, under exit()/atexit). stderr is
+ * unbuffered, so the last marker printed before the FATAL line in the log
+ * names the throwing step. Remove once the thrower is found and fixed. */
+#define SHUTDOWN_STAGE(name) do { fprintf(stderr, "[PsyX] PsyX_Shutdown: %s\n", name); fflush(stderr); } while (0)
+
 void PsyX_Shutdown()
 {
 	fprintf(stderr, "[PsyX] PsyX_Shutdown() called (g_window=%p).\n", (void*)g_window);
@@ -1099,16 +1110,22 @@ void PsyX_Shutdown()
 
 		SDL_DestroyMutex(g_intrMutex);
 	}
+	SHUTDOWN_STAGE("vblank thread joined");
 
 	SDL_DestroyWindow(g_window);
 	g_window = NULL;
+	SHUTDOWN_STAGE("window destroyed");
 
 	GR_Shutdown();
+	SHUTDOWN_STAGE("GR_Shutdown done");
+
 	SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
 
 	SDL_Quit();
+	SHUTDOWN_STAGE("SDL_Quit done");
 
 	UnInstallExceptionHandler();
+	SHUTDOWN_STAGE("exception handler uninstalled");
 
 	PsyX_Log_Finalise();
 }
