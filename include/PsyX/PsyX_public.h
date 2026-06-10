@@ -1,6 +1,8 @@
 #ifndef EMULATOR_PUBLIC_H
 #define EMULATOR_PUBLIC_H
 
+#include <stdio.h>	/* FILE — PsyX_Log_SetStream */
+
 #define CONTROLLER_MAP_FLAG_AXIS		0x4000
 #define CONTROLLER_MAP_FLAG_INVERSE		0x8000
 
@@ -80,6 +82,12 @@ extern int							g_PsxDitherSuppressed;
 /* Debug inputs */
 extern GameDebugKeysHandlerFunc		g_dbg_gameDebugKeys;
 extern GameDebugMouseHandlerFunc	g_dbg_gameDebugMouse;
+
+/* PC port: route PsyX logging into the host's stdio stream (pass NULL to
+ * silence PsyX logging entirely). Call BEFORE PsyX_Initialise so PsyX never
+ * creates its own "<appName>.log". PsyX will flush but never fclose an
+ * externally-provided stream — the host owns its handle. */
+extern void PsyX_Log_SetStream(FILE* stream);
 
 /* Usually called at the beginning of main function */
 extern void PsyX_Initialise(char* windowName, int screenWidth, int screenHeight, int fullscreen);

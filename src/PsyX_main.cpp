@@ -401,10 +401,29 @@ void PsyX_GetWindowName(char* buffer)
 
 FILE* g_logStream = NULL;
 
+/* When the host app routes PsyX logging into its own stream (or NULL to
+ * silence it), PsyX must not fopen its own "<app>.log" and must never
+ * fclose the host's handle at shutdown — doing so left the host's stdio
+ * FILE* dangling for any logging that ran after PsyX_Shutdown. */
+static int g_logStreamExternal = 0;
+
+void PsyX_Log_SetStream(FILE* stream)
+{
+	if (g_logStream && !g_logStreamExternal)
+		fclose(g_logStream);
+
+	g_logStream = stream;
+	g_logStreamExternal = 1;
+}
+
 // intialise logging
 void PsyX_Log_Initialise()
 {
 	char appLogFilename[128];
+
+	if (g_logStreamExternal)
+		return;
+
 	sprintf(appLogFilename, "%s.log", g_appNameStr);
 
 	g_logStream = fopen(appLogFilename, "wb");
@@ -415,6 +434,13 @@ void PsyX_Log_Initialise()
 
 void PsyX_Log_Finalise()
 {
+	if (g_logStreamExternal)
+	{
+		if (g_logStream)
+			fflush(g_logStream);
+		return;
+	}
+
 	PsyX_Log_Warning("---- LOG CLOSED ----\n");
 
 	if (g_logStream)
