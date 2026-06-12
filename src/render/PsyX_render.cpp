@@ -76,6 +76,10 @@ int g_PreviousStencilMode = 0;
 int g_PreviousScissorState = 0;
 int g_PreviousOffscreenState = 0;
 RECT16 g_PreviousFramebuffer = { 0,0,0,0 };
+/* PC port: nonzero once GR_StoreFrameBuffer has stored at least one frame in
+ * g_fbTexture, so GR_UpdateVRAM can re-blit it over the framebuffer pages a
+ * full vram[] re-upload just replaced with stale CPU bytes. */
+static int g_fbStoreValid = 0;
 RECT16 g_PreviousOffscreen = { 0,0,0,0 };
 
 ShaderID g_PreviousShader = -1;
@@ -1949,7 +1953,12 @@ void GR_StoreFrameBuffer(int x, int y, int w, int h)
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);					// source is backbuffer
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_glBlitFramebuffer);
 
-		glBlitFramebuffer(0, 0, g_windowWidth, g_windowHeight, x, y + h, x + w, y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		/* PC port: destination is the w-by-h g_fbTexture, so the frame must be
+		 * stored at its origin. The old (x, y+h)..(x+w, y) rect only landed
+		 * inside the texture when disp.y == 0 — for the second display buffer
+		 * (disp.y != 0) the whole blit was clipped away and g_fbTexture kept a
+		 * stale older frame, which the next blit then stamped into VRAM. */
+		glBlitFramebuffer(0, 0, g_windowWidth, g_windowHeight, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
 		// Blit framebuffer to VRAM screen area
 
@@ -1973,12 +1982,52 @@ void GR_StoreFrameBuffer(int x, int y, int w, int h)
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	}
 
+	g_fbStoreValid = 1;
+
 	// after drawing
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glFlush();
 #endif
 
 	GR_ReadFramebufferDataToVRAM();
+#endif
+}
+
+/* PC port: re-blit the last stored frame (g_fbTexture) over its framebuffer
+ * rect in the CURRENT g_vramTexture. GR_UpdateVRAM must call this after every
+ * full vram[] re-upload: any LoadImage between frames triggers a texture swap
+ * plus whole-texture upload from the CPU vram[] array, whose framebuffer
+ * region only ever holds stale lossy PBO-readback bytes. Framebuffer-feedback
+ * effects (Screen_BackgroundMotionBlur and the per-map ghosting overlays that
+ * sample getTPage(2, ...) display-buffer pages) then read that junk — the
+ * accumulating rainbow corruption in TIM-streaming cutscenes. */
+static void GR_RestoreStoredFramebufferRegion(void)
+{
+#if USE_OPENGL && USE_FRAMEBUFFER_BLIT
+	if (!g_fbStoreValid || g_PsxSkipFramebufferStore)
+		return;
+
+	const int x = g_PreviousFramebuffer.x;
+	const int y = g_PreviousFramebuffer.y;
+	const int w = g_PreviousFramebuffer.w;
+	const int h = g_PreviousFramebuffer.h;
+
+	if (w <= 0 || h <= 0)
+		return;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, g_glVRAMFramebuffer);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_vramTexture, 0);
+
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, g_glBlitFramebuffer);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_glVRAMFramebuffer);
+
+	glBlitFramebuffer(0, 0, w, h,
+		x, y + h, x + w, y,
+		GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
 }
 
@@ -2037,6 +2086,8 @@ void GR_UpdateVRAM()
 #else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VRAM_WIDTH, VRAM_HEIGHT, VRAM_FORMAT, GL_UNSIGNED_BYTE, vram);
 #endif
+
+	GR_RestoreStoredFramebufferRegion();
 
 #endif
 }
