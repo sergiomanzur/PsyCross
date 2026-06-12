@@ -262,6 +262,22 @@ void PsyX_Pad_InternalPadUpdates()
 }
 
 
+extern "C" int PsyX_Pad_SkipButtonHeld(void)
+{
+	for (int i = 0; i < MAX_CONTROLLERS; i++)
+	{
+		SDL_GameController* gc = g_controllers[i].gc;
+		if (!gc)
+			continue;
+
+		if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_A) ||
+		    SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START))
+			return 1;
+	}
+
+	return 0;
+}
+
 int GetControllerButtonState(SDL_GameController* cont, int buttonOrAxis)
 {
 	if (buttonOrAxis & CONTROLLER_MAP_FLAG_AXIS)

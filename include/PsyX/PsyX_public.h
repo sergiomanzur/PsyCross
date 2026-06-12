@@ -128,6 +128,11 @@ extern void PsyX_EnableSwapInterval(int enable);
 /* Changes swap interval interval interval */
 extern void PsyX_SetSwapInterval(int interval);
 
+/* 1 while Cross (A) or Start is held on any connected game controller.
+ * For blocking loops (FMV playback) that run outside the game's pad
+ * polling and otherwise only see the keyboard. */
+extern int PsyX_Pad_SkipButtonHeld(void);
+
 #if defined(_LANGUAGE_C_PLUS_PLUS)||defined(__cplusplus)||defined(c_plusplus)
 }
 #endif
