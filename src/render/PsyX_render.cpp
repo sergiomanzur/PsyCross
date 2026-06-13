@@ -773,7 +773,7 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 		"		vec4 b = Projection * vec4(a_pgxp.xy, a_zw.x, 1.0);\n"\
 		"		float W = a_pgxp.z;\n"\
 		"		float zc = clamp(2.0 * a_pgxp.z / u_szMax - 1.0, -1.0, 1.0);\n"\
-		"		gl_Position = vec4(b.xy * W, zc * W, W);\n"\
+		"		gl_Position = vec4(b.xy * W, zc * b.w * W, b.w * W);\n"\
 		"	} else {\n"\
 		"		gl_Position = Projection * vec4(a_position.xy, a_zw.x, 1.0);\n"\
 		"	}\n"
