@@ -104,6 +104,13 @@ static int PGXP_LookupHinted(int sx, int sy, unsigned short hint16, float* ox, f
  * fell back to affine. Dumped ~once a second when PGXP is on so we can tell if
  * tweaking should target the hit rate or the math. */
 static unsigned int s_pgxpHit = 0, s_pgxpMiss = 0, s_pgxpFrames = 0;
+/* phase-1 diagnostics: which link of the deterministic chain fires */
+unsigned int g_pgxpDbgPut = 0;      /* PGXP_MapPut calls (store macro fired) */
+unsigned int g_pgxpDbgSetNext = 0;  /* PsyX_SetNextPrimPgxp calls */
+unsigned int g_pgxpDbgResolved = 0; /* verts resolved via MapGet in SetNext */
+unsigned int g_pgxpDbgPrimStore = 0;/* PgxpPrimStore calls (per-prim table) */
+unsigned int g_pgxpDbgBeginHit = 0; /* PGXP_BeginPrim found a table entry */
+unsigned int g_pgxpHitDet = 0;      /* deterministic hits in PgxpFillVertex */
 extern "C" void PGXP_CoverageTick(void)
 {
 	if (!g_PsxUsePgxp) { s_pgxpHit = s_pgxpMiss = 0; return; }
@@ -111,9 +118,11 @@ extern "C" void PGXP_CoverageTick(void)
 	{
 		unsigned int tot = s_pgxpHit + s_pgxpMiss;
 		if (tot)
-			eprintinfo("[PGXP] coverage: %u/%u hits (%.1f%%) over %u frames\n",
-				s_pgxpHit, tot, 100.0 * (double)s_pgxpHit / (double)tot, s_pgxpFrames);
+			eprintinfo("[PGXP] coverage: %u/%u hits (%.1f%%) over %u frames | det=%u put=%u setNext=%u resolved=%u primStore=%u beginHit=%u\n",
+				s_pgxpHit, tot, 100.0 * (double)s_pgxpHit / (double)tot, s_pgxpFrames,
+				g_pgxpHitDet, g_pgxpDbgPut, g_pgxpDbgSetNext, g_pgxpDbgResolved, g_pgxpDbgPrimStore, g_pgxpDbgBeginHit);
 		s_pgxpHit = s_pgxpMiss = s_pgxpFrames = 0;
+		g_pgxpHitDet = g_pgxpDbgPut = g_pgxpDbgSetNext = g_pgxpDbgResolved = g_pgxpDbgPrimStore = g_pgxpDbgBeginHit = 0;
 	}
 }
 
@@ -133,8 +142,10 @@ struct PgxpAddrEntry { uintptr_t key; float x, y, w; };
 #define PGXP_ADDR_MASK (PGXP_ADDR_SIZE - 1)
 static PgxpAddrEntry s_pgxpAddr[PGXP_ADDR_SIZE];
 
+extern unsigned int g_pgxpDbgPut, g_pgxpDbgSetNext, g_pgxpDbgResolved, g_pgxpDbgPrimStore, g_pgxpDbgBeginHit, g_pgxpHitDet;
 extern "C" void PGXP_MapPut(void* addr, float x, float y, float w)
 {
+	g_pgxpDbgPut++;
 	uintptr_t k = (uintptr_t)addr;
 	unsigned s = (unsigned)((k >> 2) * 2654435761u) & PGXP_ADDR_MASK;
 	for (int i = 0; i < 16; i++) {
@@ -169,6 +180,7 @@ static int     g_primPgxpNextValid = 0;
 extern "C" void PsyX_SetNextPrimPgxp(void* a0, void* a1, void* a2, void* a3)
 {
 	if (!g_PsxUsePgxp) return;
+	g_pgxpDbgSetNext++;
 	void* addrs[4] = { a0, a1, a2, a3 };
 	int n = 0;
 	for (int i = 0; i < 4; i++) {
@@ -180,6 +192,7 @@ extern "C" void PsyX_SetNextPrimPgxp(void* a0, void* a1, void* a2, void* a3)
 			n++;
 		}
 	}
+	g_pgxpDbgResolved += n;
 	g_primPgxpNextCount = n;
 	g_primPgxpNextValid = 1;
 }
@@ -195,6 +208,7 @@ static PgxpPrimEntry g_pgxpPrimTable[PGXP_PRIM_SIZE];
 
 static void PgxpPrimStore(const void* prim)
 {
+	g_pgxpDbgPrimStore++;
 	uintptr_t key = (uintptr_t)prim;
 	unsigned s = (unsigned)((key >> 2) * 2654435761u) & PGXP_PRIM_MASK;
 	for (int i = 0; i < 16; i++) {
@@ -219,7 +233,7 @@ static void PGXP_BeginPrim(const void* prim)
 	unsigned s = (unsigned)((key >> 2) * 2654435761u) & PGXP_PRIM_MASK;
 	for (int i = 0; i < 16; i++) {
 		const PgxpPrimEntry* e = &g_pgxpPrimTable[(s + i) & PGXP_PRIM_MASK];
-		if (e->key == key) { s_curPgxp = e->v; s_curPgxpN = e->n; return; }
+		if (e->key == key) { s_curPgxp = e->v; s_curPgxpN = e->n; g_pgxpDbgBeginHit++; return; }
 		if (e->key == 0) return;
 	}
 }
@@ -237,6 +251,7 @@ static inline void PgxpFillVertex(GrVertex* v, int rawX, int rawY, float ofsX, f
 				v->ppy = s_curPgxp[i].y + ofsY;
 				v->ppw = s_curPgxp[i].w;
 				s_pgxpHit++;
+				g_pgxpHitDet++;
 				return;
 			}
 		}
