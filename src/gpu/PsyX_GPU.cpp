@@ -25,6 +25,80 @@ OT_TAG prim_terminator = { (uintptr_t)-1, 0 }; // P_TAG with zero primLength
 int g_currentOTBucketCount = 0;
 float g_otBucketDepth = 0.0f;
 
+/* ----------------------------------------------------------------------------
+ * PGXP (perspective-correct rendering) — self-contained, runtime-gated.
+ *
+ * The GTE pushes each projected vertex here (only when g_PsxUsePgxp): its
+ * integer screen X/Y (the match key) plus full-precision float screen X/Y and
+ * a per-vertex W (~view depth). When the GPU builds a prim's GrVertices it
+ * matches each vertex back to its precise data by the integer X/Y key
+ * (searching recent ring entries, newest first). On a miss or when PGXP is
+ * off, the vertex falls back to the affine values and the shader's
+ * u_pgxpEnabled gate keeps it on the legacy path — so nothing changes when off.
+ * No prim fields, addPrim, or game-side store macros are touched.
+ * -------------------------------------------------------------------------- */
+#define PGXP_RING_SIZE   8192          /* power of two */
+#define PGXP_RING_MASK   (PGXP_RING_SIZE - 1)
+#define PGXP_SEARCH_BACK 96            /* recent entries scanned per vertex */
+
+struct PgxpRingEntry { int key; float x, y, w; };
+static PgxpRingEntry s_pgxpRing[PGXP_RING_SIZE];
+static unsigned int  s_pgxpRingPos = 0;
+
+extern "C" void PGXP_FrameReset(void)
+{
+	/* Optional: not strictly needed (ring is bounded + key-matched), but keeps
+	 * lookups from matching last frame's identical coords. Called at frame start. */
+	s_pgxpRingPos = 0;
+}
+
+extern "C" void PGXP_PushVertex(int sx, int sy, float fx, float fy, float fw)
+{
+	PgxpRingEntry* e = &s_pgxpRing[s_pgxpRingPos & PGXP_RING_MASK];
+	e->key = (sx & 0xFFFF) | (sy << 16);
+	e->x = fx; e->y = fy; e->w = fw;
+	s_pgxpRingPos++;
+}
+
+/* Returns 1 + fills out_* on match. Searches newest-first so the current prim's
+ * just-transformed vertices are found immediately. */
+static int PGXP_Lookup(int sx, int sy, float* ox, float* oy, float* ow)
+{
+	const int key = (sx & 0xFFFF) | (sy << 16);
+	unsigned int scan = (s_pgxpRingPos < PGXP_SEARCH_BACK) ? s_pgxpRingPos : PGXP_SEARCH_BACK;
+	for (unsigned int i = 1; i <= scan; i++)
+	{
+		const PgxpRingEntry* e = &s_pgxpRing[(s_pgxpRingPos - i) & PGXP_RING_MASK];
+		if (e->key == key)
+		{
+			*ox = e->x; *oy = e->y; *ow = e->w;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Fill a GrVertex's precise PGXP fields from the raw stored screen coord
+ * (rawX,rawY = prim's stored x/y, the GTE output BEFORE the draw-env offset).
+ * ofsX/ofsY are added so ppx/ppy line up with vertex.x/.y. pw=0 => shader
+ * treats the vertex as affine. No-op (and never called) when PGXP is off. */
+static inline void PgxpFillVertex(GrVertex* v, int rawX, int rawY, float ofsX, float ofsY)
+{
+	float fx, fy, fw;
+	if (PGXP_Lookup(rawX, rawY, &fx, &fy, &fw))
+	{
+		v->ppx = fx + ofsX;
+		v->ppy = fy + ofsY;
+		v->ppw = fw;
+	}
+	else
+	{
+		v->ppx = (float)v->x;
+		v->ppy = (float)v->y;
+		v->ppw = 0.0f; /* miss -> affine */
+	}
+}
+
 DISPENV currentDispEnv;
 DISPENV activeDispEnv;
 DRAWENV activeDrawEnv;
@@ -320,6 +394,13 @@ void MakeVertexTriangle(GrVertex* vertex, VERTTYPE* p0, VERTTYPE* p1, VERTTYPE* 
 
 	vertex[0].z = vertex[1].z = vertex[2].z = g_otBucketDepth;
 
+	if (g_PsxUsePgxp)
+	{
+		PgxpFillVertex(&vertex[0], p0[0], p0[1], ofsX, ofsY);
+		PgxpFillVertex(&vertex[1], p1[0], p1[1], ofsX, ofsY);
+		PgxpFillVertex(&vertex[2], p2[0], p2[1], ofsX, ofsY);
+	}
+
 	ScreenCoordsToEmulator(vertex, 3);
 }
 
@@ -348,6 +429,14 @@ void MakeVertexQuad(GrVertex* vertex, VERTTYPE* p0, VERTTYPE* p1, VERTTYPE* p2, 
 	vertex[3].y = p3[1] + ofsY;
 
 	vertex[0].z = vertex[1].z = vertex[2].z = vertex[3].z = g_otBucketDepth;
+
+	if (g_PsxUsePgxp)
+	{
+		PgxpFillVertex(&vertex[0], p0[0], p0[1], ofsX, ofsY);
+		PgxpFillVertex(&vertex[1], p1[0], p1[1], ofsX, ofsY);
+		PgxpFillVertex(&vertex[2], p2[0], p2[1], ofsX, ofsY);
+		PgxpFillVertex(&vertex[3], p3[0], p3[1], ofsX, ofsY);
+	}
 
 	ScreenCoordsToEmulator(vertex, 4);
 }

@@ -71,6 +71,20 @@ extern int							g_cfg_pgxpTextureCorrection;
  * the 2D-ortho (affine PSX-look) branch. */
 extern int							g_PsxUsePgxp;
 
+/* PC port: PGXP vertex push. Called from the GTE per projected vertex (only
+ * when g_PsxUsePgxp) with the integer screen X/Y (cache key) and the
+ * full-precision float screen X/Y + a per-vertex W (~view depth). The GPU
+ * prim emitters match each prim vertex back to this by its integer X/Y.
+ * Entirely inside PsyCross; no effect when PGXP is off. */
+#if defined(__cplusplus)
+extern "C" {
+#endif
+void PGXP_PushVertex(int sx, int sy, float fx, float fy, float fw);
+void PGXP_FrameReset(void);
+#if defined(__cplusplus)
+}
+#endif
+
 /* PC port: per-frame override that suppresses dither even when
  * g_cfg_psxDither is enabled. Game code sets this to 1 on 2D-only states
  * (logos, menus, options, save/load, map screen, inventory) so the dither

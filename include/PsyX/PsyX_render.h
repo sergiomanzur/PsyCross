@@ -125,16 +125,23 @@ typedef struct
 	u_char		r, g, b, a;
 
 	char		tcx, tcy, _p0, _p1;
+
+	/* PGXP (perspective-correct): precise float screen X/Y and a per-vertex
+	 * W (~view depth). Appended at the END so every existing field offset is
+	 * unchanged — the affine path never reads these, and the shader only uses
+	 * them when the u_pgxpEnabled uniform is set (never when PGXP is off). */
+	float		ppx, ppy, ppw;
 } GrVertex;
 #pragma pack(pop)
 
-typedef enum 
+typedef enum
 {
 	a_position,
 	a_zw,
 	a_texcoord,
 	a_color,
 	a_extra,
+	a_pgxp,
 } ShaderAttrib;
 
 typedef enum

@@ -301,6 +301,17 @@ int GTE_RotTransPers(int idx, int lm)
 	C2_SX2 = Lm_G1(F((long long)C2_OFX + ((long long)C2_IR1 * h_over_sz3)) >> 16);
 	C2_SY2 = Lm_G2(F((long long)C2_OFY + ((long long)C2_IR2 * h_over_sz3)) >> 16);
 
+	/* PGXP: stash the full-precision projection (no >>16 truncation, no Lm_G1
+	 * clamp) keyed by the clamped integer screen coord the prim will store.
+	 * W = view-space SZ3 (only its per-vertex ratio matters for perspective
+	 * correctness; absolute scale cancels in the divide). Gated — zero cost
+	 * and zero effect when PGXP is off. */
+	if (g_PsxUsePgxp)
+	{
+		double fx = ((double)C2_OFX + (double)C2_IR1 * (double)h_over_sz3) / 65536.0;
+		double fy = ((double)C2_OFY + (double)C2_IR2 * (double)h_over_sz3) / 65536.0;
+		PGXP_PushVertex((int)C2_SX2, (int)C2_SY2, (float)fx, (float)fy, (float)C2_SZ3);
+	}
 
 	return h_over_sz3;
 }

@@ -760,8 +760,19 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 		"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).rg; }\n"
 #endif
 
+/* PGXP path (only when u_pgxpEnabled AND this vertex has a precise W>0):
+ * build the SAME ortho clip position from the precise float screen X/Y, then
+ * scale xyzw by W so the GPU's perspective divide returns the identical NDC
+ * position but interpolates varyings (UV/colour) perspective-correctly. Depth
+ * (a_zw.x) is left as the existing affine value so Z-ordering is unchanged.
+ * The else-branch is byte-identical to the legacy affine path. */
 #define GTE_PERSPECTIVE_CORRECTION \
-		"	gl_Position = Projection * vec4(a_position.xy, a_zw.x, 1.0);\n"
+		"	if (u_pgxpEnabled > 0 && a_pgxp.z > 0.0) {\n"\
+		"		vec4 b = Projection * vec4(a_pgxp.xy, a_zw.x, 1.0);\n"\
+		"		gl_Position = vec4(b.xyz * a_pgxp.z, b.w * a_pgxp.z);\n"\
+		"	} else {\n"\
+		"		gl_Position = Projection * vec4(a_position.xy, a_zw.x, 1.0);\n"\
+		"	}\n"
 
 #define GTE_VERTEX_SHADER \
 	"	attribute vec4 a_position;\n"\
@@ -769,6 +780,7 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 	"	attribute vec4 a_color;\n"\
 	"	attribute vec4 a_extra; // texcoord.xy ofs, unused.xy\n"\
 	"	attribute vec4 a_zw;\n"\
+	"	attribute vec3 a_pgxp;\n"\
 	"	uniform mat4 Projection;\n"\
 	"	uniform mat4 Projection3D;\n"\
 	"	uniform int u_pgxpEnabled;\n"\
@@ -793,7 +805,7 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 	 * the u_pgxpEnabled override every prim would read v_is3d=0 and
 	 * we'd lose dither / bilinear on real 3D geometry too (visibly
 	 * blocky tree leaves, etc.). When pgxp off, fall back to legacy
-	 * "always treat as 3D" behavior — matches legacy behavior. */	"		v_is3d = (u_pgxpEnabled > 0) ? ((a_zw.y > 100.0) ? 1.0 : 0.0) : 1.0;\n"\
+	 * "always treat as 3D" behavior — matches legacy behavior. */	"		v_is3d = (u_pgxpEnabled > 0) ? ((a_pgxp.z > 0.0) ? 1.0 : 0.0) : 1.0;\n"\
 	"		v_z = (gl_Position.z - 40.0) * 0.005;\n"\
 	"		v_fogAmount = clamp(a_extra.z / 127.0, 0.0, 1.0);\n"\
 	"	}\n"
@@ -1026,6 +1038,7 @@ ShaderID GR_Shader_Compile(const char* source)
 
 	glBindAttribLocation(program, a_position, "a_position");
 	glBindAttribLocation(program, a_zw, "a_zw");
+	glBindAttribLocation(program, a_pgxp, "a_pgxp");
 	glBindAttribLocation(program, a_texcoord, "a_texcoord");
 	glBindAttribLocation(program, a_color, "a_color");
 	glBindAttribLocation(program, a_extra, "a_extra");
@@ -2273,6 +2286,8 @@ void GR_BindVertexBuffer()
 	glVertexAttribPointer(a_position, 4, GL_SHORT, GL_FALSE, sizeof(GrVertex), &((GrVertex*)NULL)->x);
 	glVertexAttribPointer(a_zw, 1, GL_FLOAT, GL_FALSE, sizeof(GrVertex), &((GrVertex*)NULL)->z);
 	glEnableVertexAttribArray(a_zw);
+	glVertexAttribPointer(a_pgxp, 3, GL_FLOAT, GL_FALSE, sizeof(GrVertex), &((GrVertex*)NULL)->ppx);
+	glEnableVertexAttribArray(a_pgxp);
 	glVertexAttribPointer(a_texcoord, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(GrVertex), &((GrVertex*)NULL)->u);
 	glVertexAttribPointer(a_color, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GrVertex), &((GrVertex*)NULL)->r);
 	glVertexAttribPointer(a_extra, 4, GL_BYTE, GL_FALSE, sizeof(GrVertex), &((GrVertex*)NULL)->tcx);
