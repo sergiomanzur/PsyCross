@@ -2079,6 +2079,17 @@ void GR_CopyVRAM(unsigned short* src, int x, int y, int w, int h, int dst_x, int
 
 	src += x + y * stride;
 
+	/* Clamp the destination to the VRAM rectangle. A well-formed PSX upload never
+	 * exceeds VRAM, but a mismatched/wrong-region TIM can report a rect that runs
+	 * off the bottom/right edge — without this the row memcpy walks past vram[]
+	 * and crashes (seen feeding a PAL disc a US-shaped upload). */
+	if (dst_x < 0) { w += dst_x; src -= dst_x; dst_x = 0; }
+	if (dst_y < 0) { h += dst_y; src -= dst_y * stride; dst_y = 0; }
+	if (dst_x + w > VRAM_WIDTH)  w = VRAM_WIDTH  - dst_x;
+	if (dst_y + h > VRAM_HEIGHT) h = VRAM_HEIGHT - dst_y;
+	if (w <= 0 || h <= 0)
+		return;
+
 	unsigned short* dst = vram + dst_x + dst_y * VRAM_WIDTH;
 
 	for (int i = 0; i < h; i++) {
