@@ -1007,14 +1007,25 @@ void PsyX_SPUAL_SetKey(int on_off, u_int voice_bit)
 		}
 		else
 		{
+			// Key-off means "stop sustaining the loop." Clear AL_LOOPING so a
+			// Repeat=1 sample can't keep repeating forever — without this, a
+			// one-shot SFX whose VAG carries a sustain-tail loop (e.g. a cutscene
+			// grunt/boss sound) loops endlessly because the release path below
+			// only ramps gain while the buffer keeps looping under it. With it,
+			// the voice plays out its current buffer once and stops; the release
+			// envelope still fades it naturally. Genuine ambient loops are also
+			// keyed off intentionally by the game, so stopping them here is right.
 			if (voice->looping)
-				eprintf("[SPULOOP] key-off voice=%d addr=0x%x\n",
-					(int)(voice - g_SpuVoices), (unsigned)voice->attr.addr);
+			{
+				alSourcei(alSource, AL_LOOPING, AL_FALSE);
+				voice->looping = 0;
+			}
 
 			if (g_SpuAdsrEnabled && voice->hasEnvelope && voice->envPhase != ENV_OFF)
 			{
 				// Let the release phase ring out; the tick stops the source
-				// once the envelope reaches zero.
+				// once the envelope reaches zero (or the buffer ends, now that
+				// looping is off).
 				EnvelopeKeyOff(voice);
 			}
 			else
