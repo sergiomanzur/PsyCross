@@ -73,20 +73,34 @@ int DrawSync(int mode)
 
 int LoadImage(RECT16* rect, u_long* p)
 {
-	// Blue-blood probe: BLD.TIM's red palette lives at VRAM CLUT (304,0 16x16)
-	// and its pixels at (704,0 64x256). Blood renders with clutY=0 (verified
-	// correct) yet shows blue, so something uploads over that VRAM. Log any
-	// LoadImage overlapping either region so the stomping texture is named;
-	// the upload that lands there right before blood goes blue is the culprit.
+	// Blood CLUT red remap. BLD.TIM's blood palette (uploaded to VRAM CLUT
+	// (304,0), verified byte-for-byte against the ROM) is CYAN — R low, G/B
+	// high (e.g. 0xB182 = R2 G12 B12). On PSX the textured blood reads red
+	// (via its draw blend); on PC the cyan shows through, so blood renders
+	// blue/black. Remap each entry to red-dominant (R = max channel, G/B =
+	// min) so the texture is red and the fog-tinted poly color dims it
+	// naturally — no per-poly red-boost band-aid needed. Transform a copy so
+	// the caller's buffer is untouched. Specific to (304,0): the menu/title
+	// CLUTs sit at x=224, never here.
+	if (rect->x == 304 && rect->y == 0 && rect->w <= 16 && rect->h <= 16 && p != NULL)
 	{
-		int x0 = rect->x, x1 = rect->x + rect->w;
-		int y0 = rect->y, y1 = rect->y + rect->h;
-		int hitClut = (x0 < 320 && x1 > 304 && y0 < 16  && y1 > 0);
-		int hitTex  = (x0 < 768 && x1 > 704 && y0 < 256 && y1 > 0);
-		if (hitClut || hitTex)
-			eprintf("[BLOOD-VRAM] LoadImage rect=(%d,%d %dx%d) -> %s%s\n",
-				rect->x, rect->y, rect->w, rect->h,
-				hitClut ? "CLUT(304,0) " : "", hitTex ? "TEX(704,0)" : "");
+		static unsigned short s_bloodClut[256];
+		const unsigned short* src = (const unsigned short*)p;
+		int n = rect->w * rect->h;
+		int i;
+		if (n > 256) n = 256;
+		for (i = 0; i < n; i++)
+		{
+			unsigned short c = src[i];
+			int r = c & 0x1F, g = (c >> 5) & 0x1F, b = (c >> 10) & 0x1F;
+			int stp = c & 0x8000;
+			int mx = r, mn = r;
+			if (g > mx) mx = g; if (b > mx) mx = b;
+			if (g < mn) mn = g; if (b < mn) mn = b;
+			s_bloodClut[i] = (unsigned short)(stp | (mn << 10) | (mn << 5) | mx);
+		}
+		GR_CopyVRAM(s_bloodClut, 0, 0, rect->w, rect->h, rect->x, rect->y);
+		return 0;
 	}
 
 	GR_CopyVRAM((unsigned short*)p, 0, 0, rect->w, rect->h, rect->x, rect->y);
