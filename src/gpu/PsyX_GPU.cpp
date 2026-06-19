@@ -208,7 +208,12 @@ static void PGXP_BeginPrim(const void* prim) { s_curPgxpAffine = AffineGet(prim)
  * frame like the shadow table. Unlike the old weld this runs over COMPLETE
  * coverage with a tight radius, so it only dedups coincident points — it is not
  * papering over missing precise data. */
-float g_pgxpWeldPx     = 1.0f;   /* console WELD:  0 = off */
+/* OFF by default: a global distance weld can't tell a real shared joint from any
+ * other nearby same-depth vert (a character's whole body is ~one depth), so it
+ * flattens detail and spawns new seams — the historical weld failure. Kept behind
+ * the console WELD cmd only as an experimental knob; the clean shadow model (WELD 0)
+ * is the shipped behaviour. */
+float g_pgxpWeldPx     = 0.0f;   /* console WELD:  0 = off (default) */
 float g_pgxpWeldWRatio = 1.04f;  /* console WELDW: max depth (W) ratio to weld */
 struct WeldEntry { unsigned gen; float x, y, w; };
 #define WELD_BITS 17
