@@ -1748,14 +1748,8 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 			// below (search "Pillarbox viewport"); ortho here is matched to
 			// whatever viewport that branch picks.
 			const float psxW = (float)activeDispEnv.disp.w;  // 320
-			const float psxH = (float)activeDispEnv.disp.h;  // 224 (SH renders 320x224)
-			/* Display PICTURE aspect, NOT the framebuffer aspect psxW/psxH. disp.h is
-			 * 224 (not 240) so psxW/psxH = 1.4286; but PSX shows that framebuffer as a
-			 * 4:3 picture (taller-than-wide pixels, PAR ~0.933). Using psxW/psxH gave
-			 * square pixels (PAR 1.0) in Hor+ AND a too-wide pillarbox = everything ~7%
-			 * too wide (Harry). 4/3 also matches the viewport blocks above/below, which
-			 * already hardcode it. (Re-applies a82e089, which was reverted in 45626fb.) */
-			const float psxAspect = 4.0f / 3.0f;
+			const float psxH = (float)activeDispEnv.disp.h;  // 240
+			const float psxAspect = psxW / psxH;             // 4/3
 			const float winAspect = (g_windowHeight > 0)
 				? ((float)g_windowWidth / (float)g_windowHeight)
 				: psxAspect;
