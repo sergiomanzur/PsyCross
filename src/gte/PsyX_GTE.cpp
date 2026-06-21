@@ -317,23 +317,38 @@ int GTE_RotTransPers(int idx, int lm)
 	C2_SX2 = Lm_G1(F((long long)C2_OFX + ((long long)C2_IR1 * h_over_sz3)) >> 16);
 	C2_SY2 = Lm_G2(F((long long)C2_OFY + ((long long)C2_IR2 * h_over_sz3)) >> 16);
 
-	/* PGXP: stash the full-precision projection (no >>16 truncation, no Lm_G1
-	 * clamp) keyed by the clamped integer screen coord the prim will store.
-	 * W = view-space SZ3 (only its per-vertex ratio matters for perspective
-	 * correctness; absolute scale cancels in the divide). Gated — zero cost
-	 * and zero effect when PGXP is off. */
+	/* PGXP: stash the full-precision projection keyed by the clamped integer screen
+	 * coord the prim will store. Gated — zero cost / zero effect when PGXP is off. */
 	if (g_PsxUsePgxp)
 	{
-		double fx = ((double)C2_OFX + (double)C2_IR1 * (double)h_over_sz3) / 65536.0;
-		double fy = ((double)C2_OFY + (double)C2_IR2 * (double)h_over_sz3) / 65536.0;
+		/* Project with a TRUE float divide, NOT the GTE's h_over_sz3. h_over_sz3 is the
+		 * hardware UNR divide SATURATED by Lm_E to 0x1ffff (H/SZ3 capped at ~2.0) as soon
+		 * as SZ3 < H/2, so geometry close to the camera got a WRONG precise coord AND was
+		 * forced to affine (W=0) below. A poly straddling that threshold then renders
+		 * half-perspective / half-affine and smears at the screen edge. The float divide
+		 * has no cap: every in-front vertex (SZ3 > 0) projects correctly and stays on the
+		 * perspective path, so the whole poly is consistent. (For SZ3 >= H/2 this is
+		 * identical to the old path — only the previously-broken close case changes.)
+		 * W = view-space SZ3 (only the per-vertex ratio matters; absolute scale cancels). */
+		double fx, fy;
+		float  pgxpW;
+		if (C2_SZ3 > 0) {
+			double ratio = (double)C2_H / (double)C2_SZ3;            /* H/SZ3, UNclamped */
+			fx = (double)C2_OFX / 65536.0 + (double)C2_IR1 * ratio;
+			fy = (double)C2_OFY / 65536.0 + (double)C2_IR2 * ratio;
+			pgxpW = (float)C2_SZ3;
+		} else {
+			/* SZ3 == 0: at / behind the near plane, no valid projection -> affine (W=0). */
+			fx = (double)C2_SX2; fy = (double)C2_SY2;
+			pgxpW = 0.0f;
+		}
 
-		/* Mirror the GTE SXY FIFO with a precise FIFO so the gte_stsxy* store
-		 * macros (which know the destination address but not the precise value)
-		 * can record address->precise deterministically. Shift exactly as the
-		 * C2_SXY0=C2_SXY1; C2_SXY1=C2_SXY2 shift above, then set slot 2. */
+		/* Mirror the GTE SXY FIFO with a precise FIFO so the gte_stsxy* store macros
+		 * (which know the destination address but not the precise value) can record
+		 * address->precise deterministically. Shift exactly as the C2_SXY shift above. */
 		s_pgxpFifoX[0] = s_pgxpFifoX[1]; s_pgxpFifoX[1] = s_pgxpFifoX[2]; s_pgxpFifoX[2] = (float)fx;
 		s_pgxpFifoY[0] = s_pgxpFifoY[1]; s_pgxpFifoY[1] = s_pgxpFifoY[2]; s_pgxpFifoY[2] = (float)fy;
-		s_pgxpFifoW[0] = s_pgxpFifoW[1]; s_pgxpFifoW[1] = s_pgxpFifoW[2]; s_pgxpFifoW[2] = (float)C2_SZ3;
+		s_pgxpFifoW[0] = s_pgxpFifoW[1]; s_pgxpFifoW[1] = s_pgxpFifoW[2]; s_pgxpFifoW[2] = pgxpW;
 	}
 
 	return h_over_sz3;

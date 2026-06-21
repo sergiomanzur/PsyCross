@@ -108,22 +108,39 @@ extern "C" void Shadow_Copy(void* dst, const void* src) {
 	Shadow_Put(dst, e->x, e->y, e->w, *(const unsigned*)dst);
 }
 
+/* Max |precise screen coord| (PSX units) PGXP will use before clamping the POSITION
+ * for GPU guard-band safety (W is kept either way, so the vertex stays perspective).
+ * Higher = less texture compression at the extreme screen edge (more visible in 16:9
+ * Hor+), at the cost of larger off-screen NDC. Live-tunable via console `pgxpedge`. */
+extern "C" { float g_PgxpEdgeMax = 8192.0f; }
+
 /* GPU draw resolve (DuckStation GetPreciseVertex): shadow at the prim-field
- * address, validated by exact value and a 2px tolerance. The tolerance is
- * REQUIRED even on an exact address+value match: for verts behind the camera /
- * at extreme depth the GTE divide diverges and the unclamped precise float is
- * garbage (the prim stored the GTE's CLAMPED integer); without the guard the
- * scene shatters. Miss -> affine (ppw=0). rawX/rawY = the integer in the field;
- * ofsX/ofsY = draw-env offset added to land in vertex.x/.y space. */
+ * address, validated by exact value. Miss / behind-near-plane (W=0) -> affine
+ * (ppw=0). rawX/rawY = the integer in the field; ofsX/ofsY = draw-env offset
+ * added to land in vertex.x/.y space. */
 static inline bool GetPreciseVertex(const void* addr, unsigned value, int rawX, int rawY,
                                     float ofsX, float ofsY, float* ox, float* oy, float* ow) {
 	const ShadowEntry* e = Shadow_Get(addr);
-	if (e && e->value == value) {
-		float px = e->x, py = e->y;
-		float dx = px - (float)rawX, dy = py - (float)rawY;
-		if (dx > -2.0f && dx < 2.0f && dy > -2.0f && dy < 2.0f) {
-			*ox = px + ofsX; *oy = py + ofsY; *ow = e->w; return true;
-		}
+	if (e && e->value == value && e->w > 0.0f) {
+		/* Keep EVERY valid (W>0) vertex on the perspective path. The warp at the screen
+		 * edge is a MIXED polygon: some verts perspective (PGXP), some affine -- the
+		 * interpolation across the poly is then inconsistent and smears right where the
+		 * affine verts are (just off the 4:3 / 16:9 edge). Rejecting off-screen verts to
+		 * affine (what the old +-2px / magnitude-bound code did) CREATES that mix. Instead
+		 * use the precise coord so the whole poly is consistently perspective-correct.
+		 *
+		 * Clamp only for guard-band safety: geometry very close to the camera and off to
+		 * the side projects to tens of thousands of units, and such extreme positions
+		 * stretch under rasterization. Clamp the POSITION but KEEP W>0 so the vertex stays
+		 * perspective (no affine mix). PGXP_OFFSCREEN_MAX is well past the visible width so
+		 * the on-screen + just-off-screen geometry (the part that matters) is exact.
+		 *
+		 * Only W=0 verts -- behind / at the near plane (no valid projection), set in
+		 * PsyX_GTE.cpp -- fall through to affine below. */
+		const float m = g_PgxpEdgeMax;
+		float px = e->x < -m ? -m : (e->x > m ? m : e->x);
+		float py = e->y < -m ? -m : (e->y > m ? m : e->y);
+		*ox = px + ofsX; *oy = py + ofsY; *ow = e->w; return true;
 	}
 	*ox = (float)rawX + ofsX; *oy = (float)rawY + ofsY; *ow = 0.0f; return false;
 }
@@ -583,6 +600,12 @@ void MakeVertexTriangle(GrVertex* vertex, VERTTYPE* p0, VERTTYPE* p1, VERTTYPE* 
 		PgxpFillVertex(&vertex[0], p0, p0[0], p0[1], ofsX, ofsY);
 		PgxpFillVertex(&vertex[1], p1, p1[0], p1[1], ofsX, ofsY);
 		PgxpFillVertex(&vertex[2], p2, p2[0], p2[1], ofsX, ofsY);
+		/* Per-poly consistency: if ANY vertex fell to affine (ppw<=0 — at/behind the
+		 * near plane, where there's no valid perspective projection), drop the WHOLE
+		 * poly to affine. A poly with some verts perspective and some affine shears at
+		 * the screen edge (the grazing-angle case); consistent affine matches PSX. */
+		if (vertex[0].ppw <= 0.0f || vertex[1].ppw <= 0.0f || vertex[2].ppw <= 0.0f)
+			vertex[0].ppw = vertex[1].ppw = vertex[2].ppw = 0.0f;
 	}
 
 	ScreenCoordsToEmulator(vertex, 3);
@@ -620,6 +643,10 @@ void MakeVertexQuad(GrVertex* vertex, VERTTYPE* p0, VERTTYPE* p1, VERTTYPE* p2, 
 		PgxpFillVertex(&vertex[1], p1, p1[0], p1[1], ofsX, ofsY);
 		PgxpFillVertex(&vertex[2], p2, p2[0], p2[1], ofsX, ofsY);
 		PgxpFillVertex(&vertex[3], p3, p3[0], p3[1], ofsX, ofsY);
+		/* Per-poly consistency (see MakeVertexTri): any affine vertex -> whole poly affine. */
+		if (vertex[0].ppw <= 0.0f || vertex[1].ppw <= 0.0f ||
+		    vertex[2].ppw <= 0.0f || vertex[3].ppw <= 0.0f)
+			vertex[0].ppw = vertex[1].ppw = vertex[2].ppw = vertex[3].ppw = 0.0f;
 	}
 
 	ScreenCoordsToEmulator(vertex, 4);
