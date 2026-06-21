@@ -1748,25 +1748,45 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 			// below (search "Pillarbox viewport"); ortho here is matched to
 			// whatever viewport that branch picks.
 			const float psxW = (float)activeDispEnv.disp.w;  // 320
-			const float psxH = (float)activeDispEnv.disp.h;  // 240
-			const float psxAspect = psxW / psxH;             // 4/3
+			/* Vertical ortho window. For the 3D WORLD (g_PcHorPlusEnabled) the game
+			 * renders a screen.h-tall field (224) centered on the draw offset INSIDE a
+			 * taller interlace buffer (disp.h=448, ofs=224). Mapping the whole 448 buffer
+			 * showed the near foreground PSX clips at the field bottom AND squished
+			 * everything into frame (Harry short, legs out of view). Clip the ortho to that
+			 * field window so the foreground clips like PSX and the aspect uses the field
+			 * height. 2D screens (HorPlus off, e.g. title/menus) keep the full-buffer ortho
+			 * so they are not cropped or zoomed. */
+			float psxH, orthoTop, orthoBot;
+			extern DRAWENV activeDrawEnv;
+			if (g_PcHorPlusEnabled && activeDispEnv.screen.h > 0) {
+				const float fieldH  = (float)activeDispEnv.screen.h;   // 224
+				const float centerY = (float)activeDrawEnv.ofs[1];     // 224
+				psxH     = fieldH;
+				orthoTop = centerY - fieldH * 0.5f;                    // 112
+				orthoBot = centerY + fieldH * 0.5f;                    // 336
+			} else {
+				psxH     = (float)activeDispEnv.disp.h;
+				orthoTop = 0.0f;
+				orthoBot = psxH;
+			}
+			const float psxAspect = psxW / psxH;
 			const float winAspect = (g_windowHeight > 0)
 				? ((float)g_windowWidth / (float)g_windowHeight)
 				: psxAspect;
 			const float horScale = winAspect / psxAspect;
 			if (!g_PcHorPlusEnabled || horScale <= 1.0f) {
 				/* 2D UI or non-widescreen window: 4:3 ortho, full viewport. */
-				GR_Ortho2D(0.0f, psxW, psxH, 0.0f, -1.0f, 1.0f);
+				GR_Ortho2D(0.0f, psxW, orthoBot, orthoTop, -1.0f, 1.0f);
 			} else if (g_PcWidescreenMode == 1) {
 				/* Hor+ widescreen: widen ortho, full-window viewport. PSX_NTSC_PIXEL_ASPECT
 				 * preserves 1 H px = 1 V px scaling for character proportions. */
 				const float effectiveScale = horScale * PSX_NTSC_PIXEL_ASPECT;
 				const float margin = psxW * (effectiveScale - 1.0f) * 0.5f;
-				GR_Ortho2D(-margin, psxW + margin, psxH, 0, -1.0f, 1.0f);
+				GR_Ortho2D(-margin, psxW + margin, orthoBot, orthoTop, -1.0f, 1.0f);
 			} else {
 				/* Pillarbox (mode 0, default) or stretch (mode 2): 4:3 ortho.
 				 * The viewport (below) handles pillarbox vs full-window. */
-				GR_Ortho2D(0.0f, psxW, psxH, 0.0f, -1.0f, 1.0f);
+				GR_Ortho2D(0.0f, psxW, orthoBot, orthoTop, -1.0f, 1.0f);
 			}
 
 			/* [ASPECT] ground-truth dump of the ACTUAL runtime projection
