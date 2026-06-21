@@ -68,6 +68,11 @@ extern SDL_Window* g_window;
  * 1.094 = some emulators' approximation; 1.143 = 8:7 (overscan look). */
 extern "C" {
 float g_PsxPixelAspect = 1.0f;
+/* Vertical FOV scale for the 3D gameplay world (see GR_SetOffscreenState). Our render
+ * shows ~14.7%% too much vertical world vs PSX/DuckStation (measured 0.872 vertical /
+ * 1.0 horizontal at a fixed 4:3 spot, extra at the bottom). 0.872 crops the world ortho
+ * top-anchored to match; 1.0 = no crop (old behavior). Console `vfov <n>`. */
+float g_PsxWorldVScale = 0.872f;
 }
 #define PSX_NTSC_PIXEL_ASPECT (g_PsxPixelAspect)
 
@@ -1748,26 +1753,17 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 			// below (search "Pillarbox viewport"); ortho here is matched to
 			// whatever viewport that branch picks.
 			const float psxW = (float)activeDispEnv.disp.w;  // 320
-			/* Vertical ortho window. For the 3D WORLD (g_PcHorPlusEnabled) the game
-			 * renders a screen.h-tall field (224) centered on the draw offset INSIDE a
-			 * taller interlace buffer (disp.h=448, ofs=224). Mapping the whole 448 buffer
-			 * showed the near foreground PSX clips at the field bottom AND squished
-			 * everything into frame (Harry short, legs out of view). Clip the ortho to that
-			 * field window so the foreground clips like PSX and the aspect uses the field
-			 * height. 2D screens (HorPlus off, e.g. title/menus) keep the full-buffer ortho
-			 * so they are not cropped or zoomed. */
-			float psxH, orthoTop, orthoBot;
-			extern DRAWENV activeDrawEnv;
-			if (g_PcHorPlusEnabled && activeDispEnv.screen.h > 0) {
-				const float fieldH  = (float)activeDispEnv.screen.h;   // 224
-				const float centerY = (float)activeDrawEnv.ofs[1];     // 224
-				psxH     = fieldH;
-				orthoTop = centerY - fieldH * 0.5f;                    // 112
-				orthoBot = centerY + fieldH * 0.5f;                    // 336
-			} else {
-				psxH     = (float)activeDispEnv.disp.h;
+			float psxH = (float)activeDispEnv.disp.h;   // 224 — aspect/horizontal only
+			float orthoTop = 0.0f, orthoBot = psxH;
+			if (g_PcHorPlusEnabled) {
+				/* 3D gameplay world renders ~14.7% too much vertical world (measured: vertical
+				 * scale 0.872 vs DuckStation at a fixed 4:3 spot, horizontal 1.0, top-aligned
+				 * with the extra at the BOTTOM = near foreground). Crop the world ortho to
+				 * g_PsxWorldVScale of the buffer, top-anchored (keep ceiling, clip foreground),
+				 * which also zooms objects ~1/scale taller. psxH (aspect) stays full so the
+				 * horizontal + Hor+ logic is unchanged. Console `vfov` tunes it. */
 				orthoTop = 0.0f;
-				orthoBot = psxH;
+				orthoBot = psxH * g_PsxWorldVScale;        // 224 * 0.872 ~= 195
 			}
 			const float psxAspect = psxW / psxH;
 			const float winAspect = (g_windowHeight > 0)
