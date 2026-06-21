@@ -1775,9 +1775,13 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 				 * which also zooms objects ~1/scale taller. psxH (aspect) stays full so the
 				 * horizontal + Hor+ logic is unchanged. Console `vfov` tunes it. */
 				/* Cutscenes frame themselves with letterbox bars — skip the crop there
-				 * (vscale 1.0) so the bars + subtitles aren't scaled/clipped off-screen. */
+				 * (vscale 1.0) so the bars + subtitles aren't scaled/clipped off-screen.
+				 * Also skip the fixed-cam vshift during cutscenes: a fixed-angle cutscene
+				 * shot (the alley match scene) is a fixed cam, so vshift slid the ortho —
+				 * and the letterbox bars — up by 20, breaking the bar alignment. vshift is
+				 * a gameplay framing aid only. */
 				const float vscale = g_PsxCutsceneActive ? 1.0f : g_PsxWorldVScale;
-				const float vshift = g_PsxFixedCamActive ? g_PsxWorldVShift : 0.0f;
+				const float vshift = (g_PsxFixedCamActive && !g_PsxCutsceneActive) ? g_PsxWorldVShift : 0.0f;
 				orthoTop = 0.0f          - vshift;   // +shift = show higher content
 				orthoBot = psxH * vscale - vshift;
 			}
