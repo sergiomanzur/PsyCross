@@ -770,14 +770,23 @@ float g_PsyX_FogColor[3] = { 0.0f, 0.0f, 0.0f };
 	"	return decodeRG(color_16);\n"\
 	"}\n"
 
+/* The VRAM texture stores each 16-bit PSX pixel as two normalised bytes
+ * (low/high). Every downstream step — packRG, the 4/8-bit CLUT index math,
+ * and the 5-bit channel decode — treats the sampled value as an exact k/255
+ * and feeds it to floor(). The Windows GL driver normalises UNSIGNED_BYTE ->
+ * float precisely enough that this holds; Mesa (Steam Deck / Proton) rounds
+ * slightly differently, so floor() lands one bucket off and colours / palette
+ * lookups corrupt. Snap each channel to its exact integer byte right at the
+ * source so all downstream math is bit-exact on every driver (a no-op where
+ * normalisation is already exact). */
 #if (VRAM_FORMAT == GL_LUMINANCE_ALPHA)
 #define GPU_FETCH_VRAM_FUNC\
 		"	uniform sampler2D s_texture;\n"\
-		"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).ra; }\n"
+		"	vec2 VRAM(vec2 uv) { return floor(texture2D(s_texture, uv).ra * 255.0 + 0.5) * (1.0 / 255.0); }\n"
 #else
 #define GPU_FETCH_VRAM_FUNC\
 		"	uniform sampler2D s_texture;\n"\
-		"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).rg; }\n"
+		"	vec2 VRAM(vec2 uv) { return floor(texture2D(s_texture, uv).rg * 255.0 + 0.5) * (1.0 / 255.0); }\n"
 #endif
 
 /* PGXP path (only when u_pgxpEnabled AND this vertex has a precise W>0):
