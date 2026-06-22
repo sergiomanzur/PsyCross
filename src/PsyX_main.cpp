@@ -1141,6 +1141,11 @@ void PsyX_Shutdown()
 {
 	fprintf(stderr, "[PsyX] PsyX_Shutdown() called (g_window=%p).\n", (void*)g_window);
 	fflush(stderr);
+	/* This is the intentional teardown path (MainLoop returned, incl. Esc warm-
+	 * reboot which doesn't go through PsyX_Exit). Mark the exit normal so the
+	 * benign teardown exception takes the clean _Exit(0) branch instead of the
+	 * FATAL+abort that scared users at the end of ending-map sessions. */
+	g_psyxNormalExit = 1;
 	if (!g_window)
 		return;
 
