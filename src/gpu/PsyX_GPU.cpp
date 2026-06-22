@@ -507,12 +507,25 @@ struct GPUDrawSplit
 	u_short			numVerts;
 
 	const char*		debugText;
+
+	/* PC: when set, this split is 2D UI (subtitles / screen fade / cutscene
+	 * letterbox bars drawn via OrderingTable2) and must render with the full
+	 * vertical ortho instead of the Hor+ world crop (g_PsxWorldVScale), which
+	 * would otherwise clip bottom-anchored UI off-screen. Stamped from
+	 * g_PsxUIOrthoPass while the game draws the UI ordering table. */
+	bool			uiOrtho;
 };
 
 #define MAX_DRAW_SPLITS	 4096
 
 GrVertex g_vertexBuffer[MAX_VERTEX_BUFFER_SIZE];
 GPUDrawSplit g_splits[MAX_DRAW_SPLITS];
+
+/* Set to 1 by the game (extern) around GsDrawOt(OrderingTable2) so the UI
+ * splits created during that draw are flagged uiOrtho. g_PsxUISplitActive is
+ * set per-split in DrawSplit and read by GR_SetOffscreenState. */
+int g_PsxUIOrthoPass   = 0;
+int g_PsxUISplitActive = 0;
 
 int g_vertexIndex = 0;
 int g_splitIndex = 0;
@@ -523,6 +536,7 @@ void ClearSplits()
 	g_vertexIndex = 0;
 	g_splitIndex = 0;
 	g_splits[0].texFormat = (TexFormat)0xFFFF;
+	g_splits[0].uiOrtho = false;
 }
 
 template<class T>
@@ -1143,6 +1157,7 @@ static void AddSplit(bool semiTrans, bool textured)
 		curSplit.drawenv.clip.w == activeDrawEnv.clip.w &&
 		curSplit.drawenv.clip.h == activeDrawEnv.clip.h &&
 		curSplit.drawenv.dfe == activeDrawEnv.dfe &&
+		curSplit.uiOrtho == (g_PsxUIOrthoPass != 0) &&
 		curSplit.debugText == currentSplitDebugText)
 	{
 		return;
@@ -1164,6 +1179,7 @@ static void AddSplit(bool semiTrans, bool textured)
 	split.drawenv = activeDrawEnv;
 	split.dispenv = activeDispEnv;
 	split.debugText = currentSplitDebugText;
+	split.uiOrtho = (g_PsxUIOrthoPass != 0);
 
 	split.drawenv.tw.w = overrideTextureWidth;
 	split.drawenv.tw.h = overrideTextureHeight;
@@ -1200,6 +1216,9 @@ void DrawSplit(const GPUDrawSplit& split)
 		GR_SetOverrideTextureSize(split.drawenv.tw.w, split.drawenv.tw.h);
 
 	const bool drawOnScreen = split.drawenv.dfe;
+	/* Tell GR_SetOffscreenState whether this split is 2D UI (full vertical
+	 * ortho) or 3D world (Hor+ vertical crop). */
+	g_PsxUISplitActive = split.uiOrtho ? 1 : 0;
 	GR_SetupClipMode(&split.drawenv.clip, drawOnScreen);
 	GR_SetOffscreenState(&split.drawenv.clip, !drawOnScreen);
 

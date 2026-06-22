@@ -1812,8 +1812,15 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 				 * shot (the alley match scene) is a fixed cam, so vshift slid the ortho —
 				 * and the letterbox bars — up by 20, breaking the bar alignment. vshift is
 				 * a gameplay framing aid only. */
-				const float vscale = g_PsxCutsceneActive ? 1.0f : g_PsxWorldVScale;
-				const float vshift = (g_PsxFixedCamActive && !g_PsxCutsceneActive) ? g_PsxWorldVShift : 0.0f;
+				/* g_PsxUISplitActive: this split is 2D UI (subtitles / fade /
+				 * cutscene letterbox bars from OrderingTable2). Use the full
+				 * vertical ortho so bottom-anchored UI isn't clipped by the
+				 * Hor+ world crop. The horizontal Hor+ widening below is left
+				 * intact so UI stays horizontally aligned with the world. */
+				extern int g_PsxUISplitActive;
+				const bool uiSplit = (g_PsxCutsceneActive || g_PsxUISplitActive) != 0;
+				const float vscale = uiSplit ? 1.0f : g_PsxWorldVScale;
+				const float vshift = (g_PsxFixedCamActive && !uiSplit) ? g_PsxWorldVShift : 0.0f;
 				orthoTop = 0.0f          - vshift;   // +shift = show higher content
 				orthoBot = psxH * vscale - vshift;
 			}
