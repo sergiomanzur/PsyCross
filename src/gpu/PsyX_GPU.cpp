@@ -151,6 +151,48 @@ static inline bool GetPreciseVertex(const void* addr, unsigned value, int rawX, 
 	*ox = (float)rawX + ofsX; *oy = (float)rawY + ofsY; *ow = 0.0f; return false;
 }
 
+/* Precise backface test for the lit-character drawer. The game's gte_nclip runs
+ * on the rounded 16-bit screen coords; at distance the cross product of small
+ * integers flips sign on near-edge-on faces -> faces get false-culled and the
+ * model sheds chunks far away (waist/silhouette first). Recompute the cross
+ * product from the PGXP precise float projection (keyed by the screenXy address,
+ * the same address SH_PGXP_PROP copies from). Returns 1 = backface (cull), 0 =
+ * frontface (keep); falls back to the GTE integer sign when PGXP is off or a
+ * vertex isn't tracked. The offset cancels in the cross product, so pass 0. */
+static inline bool Pgxp_FetchXY(const void* a, float* x, float* y) {
+	float w;
+	return GetPreciseVertex(a, *(const unsigned*)a, 0, 0, 0.0f, 0.0f, x, y, &w);
+}
+
+extern "C" int PsyX_PGXP_TriBackface(const void* a0, const void* a1, const void* a2, int intNcl)
+{
+	if (g_PsxUsePgxp) {
+		float x0,y0, x1,y1, x2,y2;
+		if (Pgxp_FetchXY(a0,&x0,&y0) && Pgxp_FetchXY(a1,&x1,&y1) && Pgxp_FetchXY(a2,&x2,&y2)) {
+			float ncl = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
+			return ncl <= 0.0f ? 1 : 0;
+		}
+	}
+	return intNcl <= 0 ? 1 : 0;
+}
+
+/* Quad = two triangles; the game culls only if BOTH are backfacing (n012<=0 AND
+ * n312>=0, opposite winding on the 2nd). Same precise/integer fallback. */
+extern "C" int PsyX_PGXP_QuadBackface(const void* a0, const void* a1, const void* a2, const void* a3,
+                                      int intN012, int intN312)
+{
+	if (g_PsxUsePgxp) {
+		float x0,y0, x1,y1, x2,y2, x3,y3;
+		if (Pgxp_FetchXY(a0,&x0,&y0) && Pgxp_FetchXY(a1,&x1,&y1) &&
+		    Pgxp_FetchXY(a2,&x2,&y2) && Pgxp_FetchXY(a3,&x3,&y3)) {
+			float n012 = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
+			float n312 = (x1-x3)*(y2-y3) - (x2-x3)*(y1-y3);
+			return (n012 <= 0.0f && n312 >= 0.0f) ? 1 : 0;
+		}
+	}
+	return (intN012 <= 0 && intN312 >= 0) ? 1 : 0;
+}
+
 /* Coverage instrumentation: precise (det) vs affine (miss) per 3D vertex, dumped
  * ~once a second when PGXP is on. Also bumps the frame generation. */
 static unsigned int s_pgxpDet = 0, s_pgxpMiss = 0, s_pgxpFrames = 0;
