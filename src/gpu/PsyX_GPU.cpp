@@ -114,6 +114,12 @@ extern "C" void Shadow_Copy(void* dst, const void* src) {
  * Hor+), at the cost of larger off-screen NDC. Live-tunable via console `pgxpedge`. */
 extern "C" { float g_PgxpEdgeMax = 8192.0f; }
 
+/* PGXP perspective-W precision. 1 (default) = use the unquantized GTE accumulator
+ * (gte_shift(m_mac3,1)) for the shader's per-vertex W instead of the clamped 16-bit
+ * SZ3 register; coincident edges then get a matching 1/W so seams stop widening with
+ * distance. 0 = original quantized SZ3 (for A/B). Live-tunable via console `pgxpdepth`. */
+extern "C" { int g_PgxpUseUnquantizedDepth = 1; }
+
 /* GPU draw resolve (DuckStation GetPreciseVertex): shadow at the prim-field
  * address, validated by exact value. Miss / behind-near-plane (W=0) -> affine
  * (ppw=0). rawX/rawY = the integer in the field; ofsX/ofsY = draw-env offset

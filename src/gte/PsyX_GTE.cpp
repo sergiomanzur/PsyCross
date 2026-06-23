@@ -286,6 +286,8 @@ int Lm_H(long long value, int sf) {
  * the GTE just produced. Updated only when g_PsxUsePgxp. */
 static float s_pgxpFifoX[3], s_pgxpFifoY[3], s_pgxpFifoW[3];
 
+extern "C" int g_PgxpUseUnquantizedDepth; /* defined in PsyX_GPU.cpp */
+
 /* Called from the gte_stsxy* store macros (only when g_PsxUsePgxp): the macro
  * just wrote the integer screen coord for FIFO slot `slot` (SXY0=0, SXY1=1,
  * SXY2=2) to `addr`, so record the shadow keyed by that address, validated by
@@ -336,7 +338,14 @@ int GTE_RotTransPers(int idx, int lm)
 			double ratio = (double)C2_H / (double)C2_SZ3;            /* H/SZ3, UNclamped */
 			fx = (double)C2_OFX / 65536.0 + (double)C2_IR1 * ratio;
 			fy = (double)C2_OFY / 65536.0 + (double)C2_IR2 * ratio;
-			pgxpW = (float)C2_SZ3;
+			/* W for the shader's perspective divide. C2_SZ3 is the GTE's CLAMPED 16-bit
+			 * depth register; two independent GTE calls for a shared edge quantize to
+			 * SZ3 values 1-2 apart, so the per-vertex 1/W diverges and the perspective
+			 * interpolation across the shared edge mismatches -> seam that gets more
+			 * visible with distance. gte_shift(m_mac3,1) is the SAME shift Lm_D applies
+			 * to make SZ3 but WITHOUT the [0,0xffff] clamp -> full precision, so coincident
+			 * edges get matching W. Toggle (pgxpdepth 0/1) for A/B. */
+			pgxpW = g_PgxpUseUnquantizedDepth ? (float)gte_shift(m_mac3, 1) : (float)C2_SZ3;
 		} else {
 			/* SZ3 == 0: at / behind the near plane, no valid projection -> affine (W=0). */
 			fx = (double)C2_SX2; fy = (double)C2_SY2;
